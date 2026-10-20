@@ -1,0 +1,21 @@
+# ppd-demo
+
+Demo portal za proof of concept: jedan članak, komentari, glasanje. Node + TypeScript, bez
+framework-a (`node:http`). Koristi `@ppd/sdk-node` i snippet iz `ts/`.
+
+```bash
+docker compose up -d --build demo     # http://localhost:18082  (+ /admin)
+docker compose run --rm e2e           # 5 testova u pravom browseru (Chromium)
+```
+
+| Šta pokazuje | Ishod |
+| --- | --- |
+| čitalac glasa posle čitanja | `valid` → `count`, javni brojač +1 |
+| glas odmah posle učitavanja | `too_young` → shadow; glasaču izgleda isto |
+| bot bez tokena (direktan POST) | `missing` → shadow, isti odgovor `{"ok":true}` |
+| lažan token | `bad_signature` → shadow, isti odgovor |
+| token drugog posta | `wrong_post` → shadow |
+
+**Samo za demo:** `/admin` i `/admin/votes.json` prikazuju razloge odluka. Pravi portal ih
+nikad ne izlaže. Brojač upotreba je u memoriji (po spec-u ide u Valkey), presude iz Valkey-ja
+još ne postoje (akcija je uvek `none`).

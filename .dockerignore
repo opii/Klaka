@@ -1,0 +1,11 @@
+# Kontekst za demo/Dockerfile je koren repoa — bez artefakata i keševa.
+.git
+**/node_modules
+**/dist
+**/dist-test
+core/target
+core/.cargo-docker
+.npm-docker
+demo/test-results
+demo/playwright-report
+.env
