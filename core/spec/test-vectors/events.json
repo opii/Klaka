@@ -1,0 +1,173 @@
+{
+  "description": "Pojedinačni događaji (core/spec/events.md §2–§4): šta collector prihvata i u kom obliku upisuje. `endpoint` je `events` (browser) ili `ingest` (SDK). `expect` = događaj posle normalizacije (nepoznata polja uklonjena, `ref` bez query-ja i fragmenta, `vp` zaokružen na 100, `ua` skraćen na 512 bajtova) ili null ako se događaj odbacuje.",
+  "cases": [
+    {
+      "name": "view",
+      "endpoint": "events",
+      "input": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1792000000000, "post": "p-1001", "ref": "https://t.co/", "variant": null, "lang": "en-US", "tz_min": 60, "vp": [1300, 700], "auto": 0 },
+      "expect": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1792000000000, "post": "p-1001", "ref": "https://t.co/", "variant": null, "lang": "en-US", "tz_min": 60, "vp": [1300, 700], "auto": 0 }
+    },
+    {
+      "name": "view_ref_query_fragment_stripped",
+      "endpoint": "events",
+      "input": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "ref": "https://example.com/a/b?user=42#x", "variant": "c7", "lang": "en", "tz_min": 0, "vp": [1366, 649], "auto": 1 },
+      "expect": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "ref": "https://example.com/a/b", "variant": "c7", "lang": "en", "tz_min": 0, "vp": [1400, 600], "auto": 1 }
+    },
+    {
+      "name": "view_unknown_field_dropped",
+      "endpoint": "events",
+      "input": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "ref": null, "variant": null, "lang": "en", "tz_min": 0, "vp": [0, 0], "auto": 0, "fp": "canvas-hash" },
+      "expect": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "ref": null, "variant": null, "lang": "en", "tz_min": 0, "vp": [0, 0], "auto": 0 }
+    },
+    {
+      "name": "view_missing_field",
+      "endpoint": "events",
+      "input": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "ref": null, "variant": null, "tz_min": 0, "vp": [0, 0], "auto": 0 },
+      "expect": null
+    },
+    {
+      "name": "view_empty_vid",
+      "endpoint": "events",
+      "input": { "type": "view", "vid": "", "t": 1, "post": "p-1001", "ref": null, "variant": null, "lang": "en", "tz_min": 0, "vp": [0, 0], "auto": 0 },
+      "expect": null
+    },
+    {
+      "name": "view_vp_wrong_type",
+      "endpoint": "events",
+      "input": { "type": "view", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "ref": null, "variant": null, "lang": "en", "tz_min": 0, "vp": "1300x700", "auto": 0 },
+      "expect": null
+    },
+    {
+      "name": "engage",
+      "endpoint": "events",
+      "input": { "type": "engage", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1792000060000, "dwell_ms": 60000, "visible_ms": 55000, "depth_max": 820, "depth_hist": [9000, 8000, 7000, 6000, 5000, 4000, 3000, 2000, 1000, 0], "jumps": 1, "first_input_ms": 1200, "inputs": { "key": 0, "ptr": 14, "touch": 0 }, "comments_ms": 41000, "seq": 2, "seen": ["c-1", "c-2"] },
+      "expect": { "type": "engage", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1792000060000, "dwell_ms": 60000, "visible_ms": 55000, "depth_max": 820, "depth_hist": [9000, 8000, 7000, 6000, 5000, 4000, 3000, 2000, 1000, 0], "jumps": 1, "first_input_ms": 1200, "inputs": { "key": 0, "ptr": 14, "touch": 0 }, "comments_ms": 41000, "seq": 2, "seen": ["c-1", "c-2"] }
+    },
+    {
+      "name": "engage_depth_over_1000",
+      "endpoint": "events",
+      "input": { "type": "engage", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "dwell_ms": 1, "visible_ms": 1, "depth_max": 1001, "depth_hist": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "jumps": 0, "first_input_ms": null, "inputs": { "key": 0, "ptr": 0, "touch": 0 }, "comments_ms": null, "seq": 0, "seen": [] },
+      "expect": null
+    },
+    {
+      "name": "engage_depth_hist_not_10",
+      "endpoint": "events",
+      "input": { "type": "engage", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "dwell_ms": 1, "visible_ms": 1, "depth_max": 0, "depth_hist": [0, 0, 0], "jumps": 0, "first_input_ms": null, "inputs": { "key": 0, "ptr": 0, "touch": 0 }, "comments_ms": null, "seq": 0, "seen": [] },
+      "expect": null
+    },
+    {
+      "name": "engage_negative_duration",
+      "endpoint": "events",
+      "input": { "type": "engage", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "dwell_ms": -5, "visible_ms": 1, "depth_max": 0, "depth_hist": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], "jumps": 0, "first_input_ms": null, "inputs": { "key": 0, "ptr": 0, "touch": 0 }, "comments_ms": null, "seq": 0, "seen": [] },
+      "expect": null
+    },
+    {
+      "name": "compose_operator_signature",
+      "endpoint": "events",
+      "input": { "type": "compose", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "focus_ms": 900, "keys": "0", "pasted": true, "pasted_chars": "200+", "length": "201-1000" },
+      "expect": { "type": "compose", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "focus_ms": 900, "keys": "0", "pasted": true, "pasted_chars": "200+", "length": "201-1000" }
+    },
+    {
+      "name": "compose_exact_key_count_rejected",
+      "endpoint": "events",
+      "input": { "type": "compose", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "post": "p-1001", "focus_ms": 900, "keys": 37, "pasted": false, "pasted_chars": "0", "length": "1-50" },
+      "expect": null
+    },
+    {
+      "name": "honeypot",
+      "endpoint": "events",
+      "input": { "type": "honeypot", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "hp": "hp-9f2", "kind": "fill" },
+      "expect": { "type": "honeypot", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "hp": "hp-9f2", "kind": "fill" }
+    },
+    {
+      "name": "unknown_type",
+      "endpoint": "events",
+      "input": { "type": "fingerprint", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1 },
+      "expect": null
+    },
+    {
+      "name": "server_type_on_browser_endpoint",
+      "endpoint": "events",
+      "input": { "type": "promotion", "t": 1, "post": "p-1001", "channel": "push" },
+      "expect": null
+    },
+    {
+      "name": "vote",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1792000005000, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 3, "decision": "count", "net": "93.87.12.0/24", "ua": "Mozilla/5.0", "cid": null, "target": "c-1", "target_author": "reader42", "dir": -1 },
+      "expect": { "type": "vote", "t": 1792000005000, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 3, "decision": "count", "net": "93.87.12.0/24", "ua": "Mozilla/5.0", "cid": null, "target": "c-1", "target_author": "reader42", "dir": -1 }
+    },
+    {
+      "name": "vote_without_token",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "2a02:8109:1234::/48", "ua": "", "target": "c-1", "target_author": null, "dir": 1 },
+      "expect": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "2a02:8109:1234::/48", "ua": "", "cid": null, "target": "c-1", "target_author": null, "dir": 1 }
+    },
+    {
+      "name": "vote_full_ip_rejected",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "93.87.12.200", "ua": "", "target": "c-1", "target_author": null, "dir": 1 },
+      "expect": null
+    },
+    {
+      "name": "vote_non_canonical_prefix",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "93.87.12.200/24", "ua": "", "target": "c-1", "target_author": null, "dir": 1 },
+      "expect": null
+    },
+    {
+      "name": "vote_dir_zero",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "93.87.12.0/24", "ua": "", "target": "c-1", "target_author": null, "dir": 0 },
+      "expect": null
+    },
+    {
+      "name": "vote_unknown_token_result",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "fine", "uses": null, "decision": "shadow", "net": "93.87.12.0/24", "ua": "", "target": "c-1", "target_author": null, "dir": 1 },
+      "expect": null
+    },
+    {
+      "name": "comment_ua_truncated",
+      "endpoint": "ingest",
+      "input": { "type": "comment", "t": 1, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "too_young", "uses": 1, "decision": "shadow", "net": "93.87.12.0/24", "ua": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "cid": "abcdefghijklmnopqrstuv", "comment": "c-77", "author": "reader42", "text": "Comment text.", "reply_to": "c-1" },
+      "expect": { "type": "comment", "t": 1, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "too_young", "uses": 1, "decision": "shadow", "net": "93.87.12.0/24", "ua": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "cid": "abcdefghijklmnopqrstuv", "comment": "c-77", "author": "reader42", "text": "Comment text.", "reply_to": "c-1" }
+    },
+    {
+      "name": "comment_text_over_8kb",
+      "endpoint": "ingest",
+      "input": { "type": "comment", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "93.87.12.0/24", "ua": "", "comment": "c-78", "author": "reader42", "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "reply_to": null },
+      "expect": null
+    },
+    {
+      "name": "moderation",
+      "endpoint": "ingest",
+      "input": { "type": "moderation", "t": 1, "comment": "c-77", "result": "rejected", "reason": "spam" },
+      "expect": { "type": "moderation", "t": 1, "comment": "c-77", "result": "rejected", "reason": "spam" }
+    },
+    {
+      "name": "post",
+      "endpoint": "ingest",
+      "input": { "type": "post", "t": 1, "post": "p-1001", "rev": 2, "url": "https://demo.local/p/1001", "title": "Title", "section": "sport" },
+      "expect": { "type": "post", "t": 1, "post": "p-1001", "rev": 2, "url": "https://demo.local/p/1001", "title": "Title", "section": "sport", "body": null }
+    },
+    {
+      "name": "promotion",
+      "endpoint": "ingest",
+      "input": { "type": "promotion", "t": 1, "post": "p-1001", "channel": "push" },
+      "expect": { "type": "promotion", "t": 1, "post": "p-1001", "channel": "push" }
+    },
+    {
+      "name": "promotion_unknown_channel",
+      "endpoint": "ingest",
+      "input": { "type": "promotion", "t": 1, "post": "p-1001", "channel": "billboard" },
+      "expect": null
+    },
+    {
+      "name": "browser_type_on_ingest_endpoint",
+      "endpoint": "ingest",
+      "input": { "type": "honeypot", "vid": "AAECAwQFBgcICQoLDA0ODw", "t": 1, "hp": "hp-9f2", "kind": "fill" },
+      "expect": null
+    }
+  ]
+}
