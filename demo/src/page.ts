@@ -85,6 +85,23 @@ export function articlePage(o: {
   i trideset klupa. Gradska uprava navodi da će park tokom radova biti delimično otvoren.</p>
   <p>Stanari okolnih zgrada traže i češće odnošenje smeća, a udruženje vlasnika pasa poseban
   ograđen prostor. O oba zahteva odlučivaće se na sednici u decembru.</p>
+  <!-- Članak dužine kao na pravom portalu: komentari nisu na prvom ekranu, pa seen znači
+       da je čitalac stvarno stigao do njih (core/spec/events.md §2). -->
+  <p>Prema projektu, staza će biti široka tri metra i povezaće oba ulaza u park. Uz nju je
+  predviđeno četrdeset novih stubova javne rasvete sa štedljivim sijalicama, kao i česme na
+  tri mesta. Postojeća dečja igrališta ostaju, ali će dobiti novu podlogu.</p>
+  <p>Izvođač je izabran na tenderu na kome su učestvovale tri firme. Vrednost radova je u
+  okviru budžeta usvojenog početkom godine, a rok za završetak je kraj marta. Ako vreme
+  dozvoli, prvi deo staze biće otvoren već pre novogodišnjih praznika.</p>
+  <p>Tokom radova biće zatvoren severni ulaz, pa se šetačima savetuje da koriste ulaz kod
+  mosta. Parking uz park ostaje dostupan, osim u danima kada se dovozi materijal; o tim
+  danima stanari će biti obavešteni na oglasnim tablama.</p>
+  <p>U gradskoj upravi kažu da je ovo prvi od tri parka koji će biti uređeni u narednih
+  godinu dana. Za ostala dva projekti su u izradi, a javna rasprava o njima biće održana
+  na proleće, kada će građani moći da predlože šta im je najpotrebnije.</p>
+  <p>Udruženje stanara pozdravilo je početak radova, ali traži da se sačuva što više starih
+  stabala. Iz uprave odgovaraju da je projektom predviđeno uklanjanje samo bolesnih stabala
+  i da će za svako posečeno biti zasađeno novo.</p>
   <p class="demo">Demo za proof of concept. <a href="/admin">/admin</a> pokazuje šta je uračunato,
   šta je otišlo u shadow i zašto. Pravi portal te podatke nikad ne prikazuje.</p>
 

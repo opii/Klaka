@@ -60,8 +60,8 @@ koordinisane glasove i komentare sa poznatim obeležjima, a paralelno pušta i l
 publiku. Pošto zna šta je sam uradio, daje **čist ground truth** za merenje — ono što pravi
 saobraćaj nikad ne daje (koncept §6, treći izvor oznaka).
 
-Status: nivoi 0–1 rade (uloge koje glasaju, ogledalo, čitaoci, CGNAT blizanac, izveštaj sa
-presudama engine-a); nivo 2 i razvodnjivači slede.
+Status: nivoi 0–3 rade (uloge koje glasaju, ogledalo, čitaoci, CGNAT blizanac, izveštaj sa
+presudama engine-a); nivo 3 detektori još ne hvataju; nivo 4 i razvodnjivači slede.
 
 ### 2.1. Ogledalo
 
