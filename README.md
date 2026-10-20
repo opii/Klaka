@@ -3,6 +3,27 @@
 Detekcija koordinisanih napada (glasovi, komentari) na portalima — isključivo iz podataka
 koje portal sam može da prikupi. Polazna tačka: [`docs/koncept_detekcija_sa_portala.md`](docs/koncept_detekcija_sa_portala.md).
 
+## Zašto „Klaka"
+
+**Klaka** (fr. *claque*, od *claquer* — pljeskati) je plaćena publika: ljudi unajmljeni da u
+pozorištu ili operi aplaudiraju, smeju se, plaču ili traže bis, da bi ostatak sale poverovao da
+je predstava uspeh. Svetonije piše da je Neron imao na hiljade mladića, *Augustijanaca*, koji su
+pratili njegove nastupe uvežbanim vrstama aplauza. U Parizu je posle 1820. klaka postala
+posao sa agencijama i cenovnicima, i sa podelom uloga: *chef de claque* je vodio akciju,
+*rieurs* su se smejali, *pleureuses* plakale, *bisseurs* tražili bis. Operske kuće u Beču i
+Milanu imale su klaku i u XX veku; Maler je pokušao da je izbaci iz bečke Dvorske opere.
+
+Klaka nije morala da bude velika. Delovala je zato što publika aplauz drugih čita kao dokaz
+da je nešto dobro — isto kao što čitalac danas čita broj glasova i ton komentara ispod
+članka. Današnja klaka je koordinisana mreža naloga koja glasa i komentariše po scenariju,
+sa istim osobinama kao stara: mala grupa, raspoređena po sali, koja deluje složno i po
+uputstvu, u ulogama.
+
+Odatle i pristup ovog projekta: klaka se ne izbacuje iz sale (to bi je samo naučilo da se
+bolje sakrije), nego se njen aplauz **ne računa**. Glas koji sistem oceni kao deo koordinisane
+akcije čuva se i prikazuje onome ko ga je dao, ali ne ulazi u javni zbir (`shadow`, vidi
+[`core/spec/sdk.md`](core/spec/sdk.md)).
+
 ## Pokretanje
 
 Potreban je samo Docker (sa Compose v2).
