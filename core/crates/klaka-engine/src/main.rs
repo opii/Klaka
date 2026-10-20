@@ -7,17 +7,27 @@
 //! - `KLAKA_ENGINE_MIN_VOTES`, `KLAKA_ENGINE_MIN_VIDS`, `KLAKA_ENGINE_MIN_FLAGGED_SHARE`
 //!   pragovi detektora: glasova, prikaza i udeo označenih prikaza (5, 3, 0.8)
 //! - `KLAKA_ENGINE_MIN_POSTS`, `KLAKA_ENGINE_MIN_LIFT`, `KLAKA_ENGINE_MAX_P`
-//!   usmereni glasovi: postova, odnos prema organskom udelu, binomni rep (2, 3, 1e-4)
+//!   usmereni glasovi i deljeni šabloni: postova, odnos prema organskom udelu, binomni rep (2, 3, 1e-4)
+//! - `KLAKA_ENGINE_MIN_COMMENTS`  detektori komentara: najmanje komentara iz prefiksa (5)
+//! - `KLAKA_ENGINE_MAX_TEXT_DISTANCE`, `KLAKA_ENGINE_MIN_MINHASH`
+//!   deljeni šabloni: kosinusna udaljenost za parafrazu, MinHash za kopiju (0.2, 0.5)
+//! - `KLAKA_OLLAMA_URL`, `KLAKA_EMBED_MODEL`  embeddings komentara (bez njih: samo MinHash)
+//! - `KLAKA_RETENTION_DAYS`      koliko dugo se čuvaju embeddings, kao i događaji (30)
 //! - `KLAKA_ENGINE_TTL_S`        trajanje presude (3600)
 
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use klaka_db::MIGRATOR;
+use klaka_engine::comments::{
+    SHARED_TEMPLATES, UNWRITTEN_COMMENTS, embed_pending, purge_embeddings, template_cohorts,
+    unwritten_cohorts,
+};
 use klaka_engine::{
     Config, FOCUSED_VOTES, Finding, GHOST_VIEWS, NetVerdict, UNREAD_VOTES, detectors,
     focused_cohorts, ghost_cohorts, group_by_net, issue_net_shadow, unread_cohorts,
 };
+use klaka_llm::{Embedder, Ollama};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -36,6 +46,9 @@ async fn main() {
         min_posts: env("KLAKA_ENGINE_MIN_POSTS", 2),
         min_lift: env("KLAKA_ENGINE_MIN_LIFT", 3.0),
         max_p_value: env("KLAKA_ENGINE_MAX_P", 1e-4),
+        min_comments: env("KLAKA_ENGINE_MIN_COMMENTS", 5),
+        max_text_distance: env("KLAKA_ENGINE_MAX_TEXT_DISTANCE", 0.2),
+        min_minhash: env("KLAKA_ENGINE_MIN_MINHASH", 0.5),
         ttl: Duration::from_secs(env("KLAKA_ENGINE_TTL_S", 3600)),
     };
 
@@ -52,8 +65,15 @@ async fn main() {
         .await
         .unwrap_or_else(|e| fail(&format!("valkey: {e}")));
 
+    let ollama_url = std::env::var("KLAKA_OLLAMA_URL").ok();
+    let embed_model = std::env::var("KLAKA_EMBED_MODEL").unwrap_or_else(|_| "bge-m3".to_owned());
+    let retention_days: i32 = env("KLAKA_RETENTION_DAYS", 30);
+    let mut embedder: Option<Ollama> = None;
+    let mut embed_error: Option<String> = None;
+
     eprintln!(
-        "klaka-engine: detektori {GHOST_VIEWS}, {UNREAD_VOTES}, {FOCUSED_VOTES}; svakih {}s, prozor {}s",
+        "klaka-engine: detektori {GHOST_VIEWS}, {UNREAD_VOTES}, {FOCUSED_VOTES}, \
+         {UNWRITTEN_COMMENTS}, {SHARED_TEMPLATES}; svakih {}s, prozor {}s",
         interval.as_secs(),
         cfg.window.as_secs()
     );
@@ -63,6 +83,29 @@ async fn main() {
             _ = tick.tick() => {}
             _ = tokio::signal::ctrl_c() => return,
         }
+        // Embeddings novih komentara pre detektora. Bez Ollama-e šabloni rade samo preko
+        // MinHash-a (kopije); veza se ponovo pokušava svaki krug.
+        if let Some(url) = &ollama_url {
+            if embedder.is_none() {
+                match Ollama::connect(url, &embed_model, EMBED_TIMEOUT).await {
+                    Ok(e) => {
+                        eprintln!("klaka-engine: embeddings {}", e.model());
+                        embedder = Some(e);
+                        embed_error = None;
+                    }
+                    Err(e) => warn_once(&mut embed_error, format!("embeddings nedostupni: {e}")),
+                }
+            }
+            if let Some(e) = &embedder {
+                if let Err(err) = embed_pending(&pool, e, &cfg, EMBED_BATCH).await {
+                    warn_once(&mut embed_error, format!("embeddings: {err}"));
+                }
+            }
+        }
+        if let Err(e) = purge_embeddings(&pool, retention_days).await {
+            eprintln!("klaka-engine: brisanje starih embeddings-a: {e}");
+        }
+
         let mut findings = Vec::new();
         collect(GHOST_VIEWS, ghost_cohorts(&pool, &cfg).await, &mut findings);
         collect(
@@ -73,6 +116,17 @@ async fn main() {
         collect(
             FOCUSED_VOTES,
             focused_cohorts(&pool, &cfg).await,
+            &mut findings,
+        );
+        collect(
+            UNWRITTEN_COMMENTS,
+            unwritten_cohorts(&pool, &cfg).await,
+            &mut findings,
+        );
+        let model = embedder.as_ref().map(|e| e.model());
+        collect(
+            SHARED_TEMPLATES,
+            template_cohorts(&pool, &cfg, model).await,
             &mut findings,
         );
         for ((portal, net), findings) in group_by_net(findings) {
@@ -97,6 +151,17 @@ async fn main() {
                 Err(e) => eprintln!("klaka-engine: presuda {portal} {net} nije upisana: {e}"),
             }
         }
+    }
+}
+
+const EMBED_TIMEOUT: Duration = Duration::from_secs(60);
+const EMBED_BATCH: i64 = 32;
+
+/// Ista greška se ne ponavlja u logu svakog kruga.
+fn warn_once(last: &mut Option<String>, msg: String) {
+    if last.as_deref() != Some(msg.as_str()) {
+        eprintln!("klaka-engine: {msg}");
+        *last = Some(msg);
     }
 }
 

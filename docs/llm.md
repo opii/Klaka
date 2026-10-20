@@ -1,6 +1,7 @@
 # LLM sloj — plan
 
-**Status:** plan, nije implementirano. **Vezano:** [`koncept_detekcija_sa_portala.md`](koncept_detekcija_sa_portala.md) §5,
+**Status:** E1 (embeddings komentara) radi u `klaka-engine` (§5a); generativni zadaci G1–G3 su
+plan. **Vezano:** [`koncept_detekcija_sa_portala.md`](koncept_detekcija_sa_portala.md) §5,
 [`tech_stack.md`](tech_stack.md) §2–§3.
 
 Podrazumevano rešenje je **Ollama sa otvorenim modelima** — lokalno i bez troškova. Plaćeni
@@ -127,7 +128,7 @@ CREATE TABLE comment_embedding (
   t       timestamptz   NOT NULL,
   model   text          NOT NULL,   -- npr. bge-m3@<digest>; vektori različitih modela se ne porede
   emb     halfvec(1024) NOT NULL,
-  PRIMARY KEY (portal, comment)
+  PRIMARY KEY (portal, comment, model)
 );
 CREATE INDEX ON comment_embedding USING hnsw (emb halfvec_cosine_ops);
 
@@ -139,13 +140,20 @@ ORDER BY emb <=> $1
 LIMIT 20;
 ```
 
-- Tok: komentar stigne → posao u redu → Ollama `/api/embed` → upis → kNN upit → parovi
-  ispod praga postaju ivice „deljeni šablon" u grafu kohorte.
-- **MinHash ide prvi** (Rust, bez modela): copy-paste i sitne izmene hvata jeftino. Embeddings
-  dodaju parafraze.
+- Tok (migracija `0005`, `klaka-engine` `comments.rs`): svaki krug engine uzme komentare iz
+  prozora koji još nemaju vektor za trenutni model (red poslova je sama tabela događaja), pošalje
+  ih Ollama-i u jednom `/api/embed` pozivu i upiše; detektor deljenih šablona onda uzme parove
+  bliže od praga. Za PoC parovi su iz samospajanja u prozoru; na obimu pravog portala — kNN
+  preko HNSW indeksa, kao u upitu iznad.
+- **MinHash ide prvi** (Rust, bez modela): copy-paste i sitne izmene hvata jeftino, i radi i
+  kad Ollama nije dostupna. Embeddings dodaju parafraze.
 - `halfvec` = upola manje prostora od `vector`, uz zanemarljiv gubitak tačnosti za kosinus.
 - Prag udaljenosti se određuje u eval-u (§7), ne unapred. Orijentir sa prvog testa (2026-10-20):
-  parafraza napada 0,108, nepovezana rečenica 0,629.
+  parafraza napada 0,108, nepovezana rečenica 0,629. Merenje na šablonima emulatora i
+  parafrazama iz `gemma3:4b` (3 po šablonu): isti šablon medijana 0,178 (p90 0,41 — mali model
+  često promeni smisao), drugi šablon iste uloge od 0,242, ručno pisani organski komentari od
+  0,328. Polazni prag `KLAKA_ENGINE_MAX_TEXT_DISTANCE = 0,2`: 69% parafraza ima blizanca, nijedan
+  organski komentar (0/16, i do 0,3).
 - **Embeddings su izvedeni iz ličnih podataka** (tekst se iz njih delimično može rekonstruisati)
   → ista retencija kao komentari, brišu se zajedno.
 - Promena embeddings modela = novi vektori za sve komentare u retenciji (zato kolona `model`).

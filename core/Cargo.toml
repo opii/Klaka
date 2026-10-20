@@ -23,6 +23,8 @@ tower-http = { version = "0.6", features = ["cors"] }
 sha2 = "0.10"
 redis = { version = "1.7", default-features = false, features = ["tokio-comp"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate", "json"] }
+# HTTP klijent za Ollama (lokalno, bez TLS-a)
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 # samo za testove
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }

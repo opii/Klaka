@@ -15,9 +15,14 @@
 //! - **usmereni glasovi** (`focused-votes`): prefiks daje glasove istom autoru komentara, u istom
 //!   smeru, kroz više postova — mnogo češće nego organska publika ([`focused`]).
 //!
+//! Komentare ocenjuju detektori iz [`comments`]: nenapisani komentari (bihevioralna) i deljeni
+//! šabloni (tekstualna, kroz više postova).
+//!
 //! Sama mreža nije dovoljna (verdicts.md §4: CGNAT deli /24 sa hiljadama ljudi); legitimni
 //! čitaoci iza istog prefiksa čitaju, klikću i glasaju raspršeno kao i svi ostali, pa ne ulaze
 //! u kohortu.
+
+pub mod comments;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -40,13 +45,19 @@ pub struct Config {
     pub min_vids: i64,
     /// Najmanji udeo sumnjivih prikaza među njima (duhova, odnosno nečitanih).
     pub min_flagged_share: f64,
-    /// Usmereni glasovi: na najmanje ovoliko različitih postova.
+    /// Usmereni glasovi i deljeni šabloni: na najmanje ovoliko različitih postova.
     pub min_posts: i64,
     /// Usmereni glasovi: udeo u glasovima prefiksa najmanje ovoliko puta veći od organskog.
     pub min_lift: f64,
-    /// Usmereni glasovi: najveća verovatnoća da bi organska publika istog obima dala bar
-    /// toliko ovakvih glasova (binomni rep).
+    /// Usmereni glasovi i deljeni šabloni: najveća verovatnoća da bi organska publika istog
+    /// obima dala bar toliko ovakvih akcija (binomni rep).
     pub max_p_value: f64,
+    /// Detektori komentara: najmanje komentara iz prefiksa.
+    pub min_comments: i64,
+    /// Deljeni šabloni: najveća kosinusna udaljenost embeddings-a za parafrazu (`docs/llm.md` §5a).
+    pub max_text_distance: f64,
+    /// Deljeni šabloni: najmanja MinHash sličnost za kopiju.
+    pub min_minhash: f64,
     /// Koliko dugo presuda važi.
     pub ttl: Duration,
 }
@@ -160,7 +171,7 @@ pub struct Focus {
     pub net_votes: i64,
     /// Udeo ćelije u glasovima prefiksa.
     pub share: f64,
-    /// Organski udeo iste ćelije: prosek udela po svim ostalim prefiksima.
+    /// Organski udeo iste ćelije: prosek udela po pojedincima (prefiksima ispod `min_votes`).
     pub baseline: f64,
     pub lift: f64,
     pub p_value: f64,
@@ -193,9 +204,10 @@ const PRIOR_NETS: f64 = 1.0;
 /// Usmereni glasovi: ćelije u kojima prefiks glasa za istog autora u istom smeru, na više
 /// postova, mnogo češće nego organska publika.
 ///
-/// Organski udeo ćelije je **prosek udela po prefiksima** — svaki prefiks je jedan glas, bez
-/// obzira na to koliko glasova daje. Tako ni kohorta ni CGNAT svojim obimom ne pomeraju meru
-/// sa kojom se porede; CGNAT je uzorak iste publike i glasa kao ona. Presuda traži i veličinu
+/// Organski udeo ćelije je **prosek udela po pojedincima**: prefiksima sa manje od `min_votes`
+/// glasova u prozoru, koji ni sami ne mogu ući u kohortu — svaki je jedan glas. Veliki prefiksi
+/// (kohorta, CGNAT) se porede sa njima, a ne jedni sa drugima: koordinisani prefiksi tako ne
+/// podižu meru jedni drugima, a CGNAT je uzorak iste publike i glasa kao ona. Presuda traži i veličinu
 /// efekta (`min_lift`) i značajnost (`max_p_value`): veliki CGNAT sa blagim odstupanjem ima
 /// mali p, ali ne i veliki lift; mala grupa sa velikim liftom nema mali p.
 ///
@@ -206,9 +218,12 @@ pub fn focused(cells: &[Cell], cfg: &Config) -> Vec<Focus> {
     for c in cells {
         *net_votes.entry((&c.portal, &c.net)).or_default() += c.votes;
     }
-    let mut nets: BTreeMap<&str, f64> = BTreeMap::new();
-    for (portal, _) in net_votes.keys() {
-        *nets.entry(portal).or_default() += 1.0;
+    let individual = |portal: &str, net: &str| net_votes[&(portal, net)] < cfg.min_votes;
+    let mut individuals: BTreeMap<&str, f64> = BTreeMap::new();
+    for (portal, net) in net_votes.keys() {
+        if individual(portal, net) {
+            *individuals.entry(portal).or_default() += 1.0;
+        }
     }
     let mut kinds: BTreeMap<&str, BTreeSet<(&str, i32)>> = BTreeMap::new();
     let mut share_sum: BTreeMap<(&str, &str, i32), f64> = BTreeMap::new();
@@ -217,8 +232,10 @@ pub fn focused(cells: &[Cell], cfg: &Config) -> Vec<Focus> {
             .entry(&c.portal)
             .or_default()
             .insert((&c.author, c.dir));
-        *share_sum.entry((&c.portal, &c.author, c.dir)).or_default() +=
-            c.votes as f64 / net_votes[&(c.portal.as_str(), c.net.as_str())] as f64;
+        if individual(&c.portal, &c.net) {
+            *share_sum.entry((&c.portal, &c.author, c.dir)).or_default() +=
+                c.votes as f64 / net_votes[&(c.portal.as_str(), c.net.as_str())] as f64;
+        }
     }
 
     let mut out = Vec::new();
@@ -229,9 +246,12 @@ pub fn focused(cells: &[Cell], cfg: &Config) -> Vec<Focus> {
         let n = net_votes[&(c.portal.as_str(), c.net.as_str())];
         let share = c.votes as f64 / n as f64;
         let uniform = 1.0 / kinds[c.portal.as_str()].len() as f64;
-        let others = nets[c.portal.as_str()] - 1.0;
-        let rest = share_sum[&(c.portal.as_str(), c.author.as_str(), c.dir)] - share;
-        let baseline = (rest.max(0.0) + PRIOR_NETS * uniform) / (others + PRIOR_NETS);
+        let others = individuals.get(c.portal.as_str()).copied().unwrap_or(0.0);
+        let rest = share_sum
+            .get(&(c.portal.as_str(), c.author.as_str(), c.dir))
+            .copied()
+            .unwrap_or(0.0);
+        let baseline = (rest + PRIOR_NETS * uniform) / (others + PRIOR_NETS);
         let lift = share / baseline;
         let p_value = binomial_tail(n, c.votes, baseline);
         if lift >= cfg.min_lift && p_value <= cfg.max_p_value {
@@ -442,6 +462,9 @@ mod tests {
             min_posts: 2,
             min_lift: 3.0,
             max_p_value: 1e-4,
+            min_comments: 5,
+            max_text_distance: 0.2,
+            min_minhash: 0.5,
             ttl: Duration::from_secs(3600),
         }
     }

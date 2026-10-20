@@ -105,13 +105,15 @@ services:
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
 
-  # Detektori za sada ne koriste LLM, pa engine ne čeka preuzimanje modela (ollama-pull).
+  # Engine ne čeka preuzimanje modela (ollama-pull): dok embeddings model ne stigne, deljene
+  # šablone vidi samo preko MinHash-a (kopije), a vezu sa Ollama-om pokušava svaki krug.
   klaka-engine:
     <<: *core
     command: ["klaka-engine"]
     environment:
       <<: *core-env
       KLAKA_ENGINE_INTERVAL_S: ${KLAKA_ENGINE_INTERVAL_S:-5}
+      KLAKA_RETENTION_DAYS: ${KLAKA_RETENTION_DAYS:-30}
 
   # --- demo portal (demo/) --------------------------------------------------
 

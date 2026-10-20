@@ -55,6 +55,9 @@ const comments: Comment[] = SEED_COMMENTS.map((c) => ({
   ...c, score: 0, t: started, decision: "count", owner: null, token: null,
 }));
 let nextComment = comments.length + 1;
+// Novi komentari nose oznaku pokretanja: demo ne čuva stanje, a ID komentara mora biti
+// jedinstven i posle restarta (engine po njemu vezuje embeddings, docs/llm.md §5a).
+const INSTANCE = started.toString(36);
 const votes: VoteLog[] = [];
 
 /** Javni komentari i `shadow` komentari ovog posetioca. */
@@ -115,7 +118,7 @@ async function comment(req: IncomingMessage, res: ServerResponse): Promise<void>
   }
   const headers: Record<string, string> = {};
   const sid = cookie(req, SID) ?? newSid(headers);
-  const id = `c${nextComment++}`;
+  const id = `c${nextComment++}-${INSTANCE}`;
   const r = klaka
     ? await klaka.onComment(clientRequest(req), { post: post.id, comment: id, author, text, replyTo: null })
     : { decision: "shadow" as const, token: "unknown_key" as const };

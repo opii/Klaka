@@ -28,7 +28,7 @@ test("view odmah posle tokena, engage sa skrolovanjem i viđenim komentarima", a
   await page.mouse.move(200, 200);
   await page.mouse.down();
   await page.mouse.up();
-  await page.mouse.wheel(0, 3000);
+  await page.mouse.wheel(0, 100_000); // do dna, ma koliko komentara stranica imala
   await page.waitForTimeout(1_200); // > 500 ms vidljivosti za seen
   await page.evaluate(() => (window as unknown as { klaka: { flush(): void } }).klaka.flush());
 

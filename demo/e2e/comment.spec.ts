@@ -16,6 +16,18 @@ interface Ev {
   [k: string]: unknown;
 }
 
+// Tekst je drugačiji pri svakom pokretanju: isti tekst sa iste mreže kroz više postova je šablon,
+// i engine (detektor deljenih šablona) bi posle par pokretanja s pravom stavio test u shadow.
+const WORDS = [
+  "staza", "biblioteka", "nedelja", "autobus", "pijaca", "tezge", "rasveta", "klupe", "čitaonica",
+  "polasci", "stanari", "budžet", "zima", "proleće", "radovi", "most", "ulaz", "parking", "deca", "kafa",
+  "reka", "drveće", "česma", "trotoar", "karta", "vozač", "sir", "mleko", "povrće", "zakup", "sednica",
+  "tender", "rok", "upis", "knjige", "subota", "jutro", "kiša", "sneg", "komšije",
+];
+// Četiri reči (najviše 10 slova) i broj: 21–50 znakova, pa su opsezi u compose-u poznati.
+const fresh = () =>
+  Array.from({ length: 4 }, () => WORDS[Math.floor(Math.random() * WORDS.length)]).join(" ") + ` ${Date.now() % 1e6}`;
+
 async function lastComment(request: APIRequestContext): Promise<StoredComment> {
   return ((await (await request.get("/admin/comments.json")).json()) as StoredComment[]).at(-1)!;
 }
@@ -41,7 +53,7 @@ test("komentar posle čitanja: vide ga svi, compose stiže collector-u", async (
       events.push(...(JSON.parse(r.postData() ?? "{}") as { events: Ev[] }).events);
     }
   });
-  const text = `Biblioteka nedeljom je dobra vest ${Date.now()}`;
+  const text = fresh();
   await openArticle(page, "p-1002");
   await page.waitForTimeout(2_500); // duže od min_age (2 s)
   await page.getByLabel("Ime", { exact: true }).fill("Tester");
@@ -60,7 +72,7 @@ test("komentar posle čitanja: vide ga svi, compose stiže collector-u", async (
 });
 
 test("prebrz komentar ide u shadow: autor ga vidi, ostali ne", async ({ page, browser, request }) => {
-  const text = `Prebrz komentar ${Date.now()}`;
+  const text = fresh();
   await openArticle(page, "p-1003");
   await page.getByLabel("Ime", { exact: true }).fill("Brzi");
   await page.getByLabel("Komentar", { exact: true }).fill(text);

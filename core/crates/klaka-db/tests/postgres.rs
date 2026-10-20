@@ -28,7 +28,7 @@ impl TestDb {
         .unwrap();
         let opts: PgConnectOptions = url.parse().unwrap();
         let pool = PgPoolOptions::new()
-            .connect_with(opts.options([("search_path", schema.as_str())]))
+            .connect_with(opts.options([("search_path", format!("{schema},public").as_str())]))
             .await
             .unwrap();
         MIGRATOR.run(&pool).await.unwrap();
