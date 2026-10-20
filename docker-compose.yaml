@@ -59,7 +59,7 @@ services:
   # Lokalni LLM i embeddings (Ollama, otvoreni modeli).
   # Modeli se preuzimaju po imenu pri prvom pokretanju (ollama-pull) i čuvaju u volumenu.
   ollama:
-    image: ollama/ollama:0.12.0
+    image: ollama/ollama:0.40.6
     ports: ["127.0.0.1:${OLLAMA_PORT:-18434}:11434"]
     volumes: [ollama-models:/root/.ollama]
     healthcheck:
@@ -68,7 +68,7 @@ services:
       retries: 20
 
   ollama-pull:
-    image: ollama/ollama:0.12.0
+    image: ollama/ollama:0.40.6
     environment:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["sh", "-c", "ollama pull \"$$0\" && ollama pull \"$$1\""]

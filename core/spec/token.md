@@ -62,8 +62,8 @@ SDK-ovi davali isti rezultat za isti ulaz (test vektori to proveravaju).
 | 1 | token postoji i nije prazan string | `missing` |
 | 2 | dužina ≤ 1024 i ceo token odgovara regex-u `^ppd1\.[a-z0-9-]{1,32}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}$` | `malformed` |
 | 3 | `kid` postoji u konfiguraciji javnih ključeva | `unknown_key` |
-| 4 | `sig` se dekodira u tačno 64 bajta i Ed25519 potpis nad potpisanom porukom je ispravan | `bad_signature` |
-| 5 | `payload` se dekodira u validan UTF-8 JSON **objekat** sa svim poljima iz §3 ispravnog tipa, `v == 1`, `vid` od 22 znaka base64url | `malformed` |
+| 4 | `sig` je **kanonski** base64url zapis tačno 64 bajta i Ed25519 potpis nad potpisanom porukom je ispravan | `bad_signature` |
+| 5 | `payload` je **kanonski** base64url zapis validnog UTF-8 JSON **objekta** sa svim poljima iz §3 ispravnog tipa, `v == 1`, `vid` od 22 znaka base64url | `malformed` |
 | 6 | `portal` == portal iz konfiguracije SDK-a | `wrong_portal` |
 | 7 | `post` == post na koji akcija stiže | `wrong_post` |
 | 8 | `now_ms − iat ≥ min_age_ms` | `too_young` |
@@ -75,6 +75,11 @@ Napomene:
 - **Strogo base64url.** Regex u koraku 2 se proverava **pre** dekodiranja. Neki dekoderi su
   popustljivi (PHP `base64_decode` bez `strict`, Java MIME dekoder) i prihvatili bi `=`,
   razmake ili `+/` — to bi omogućilo više zapisa istog tokena.
+- **Kanonski zapis (koraci 4 i 5).** Poslednji znak base64url niza može da nosi „višak" bitova
+  koji se pri dekodiranju odbacuju: `AQ` i `AR` daju isti bajt. PHP i Node takve zapise tiho
+  prihvataju, Rust (`base64`) i Go (`Strict()`) ih odbijaju. Da bi svi SDK-ovi dali isti
+  rezultat, zapis MORA biti kanonski. Prenosiva provera: dekodirati, ponovo kodirati i uporediti
+  sa ulazom — razlika znači nekanonski zapis.
 - **Potpis pre JSON-a.** JSON se parsira tek kad je potpis proveren (korak 4 pre 5). Napadač
   ne može da natera SDK da parsira proizvoljan JSON. (Zato i duplirani ključevi u JSON-u nisu
   problem: pošten izdavač ih ne pravi, a napadač ne može da potpiše.)
@@ -82,6 +87,10 @@ Napomene:
   SDK TREBA da imaju NTP; posebne tolerancije nema.
 - **`uses`** broji SDK (atomski brojač po `vid`, vidi `sdk.md` §2). Korak 10 je jedini koji
   zavisi od stanja.
+- **Celi brojevi.** Izdavač piše `v` i `iat` kao cele brojeve bez decimala i eksponenta. Oblik
+  `1.0` vektori ne pokrivaju: posle provere potpisa takav payload može da proizvede samo
+  izdavač, a on ga ne proizvodi. (JSON parseri se tu razlikuju — npr. Node ne razlikuje `1.0`
+  od `1` — pa se na tome ne gradi usklađenost.)
 
 ## 5. Izdavanje (`ppd-api`)
 

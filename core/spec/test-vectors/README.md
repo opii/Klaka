@@ -2,7 +2,7 @@
 
 | Fajl | Pokriva |
 | --- | --- |
-| `token.json` | provera tokena pregleda, [`../token.md`](../token.md) §4 — 30 slučajeva |
+| `token.json` | provera tokena pregleda, [`../token.md`](../token.md) §4 — 33 slučaja |
 
 Format `token.json`: `config` (javni ključevi i pragovi za test), `defaults` (portal, post,
 `now_ms`, `uses`), i `cases[]` sa `input` (token + eventualne izmene podrazumevanih vrednosti)
