@@ -5,6 +5,7 @@
 //   KLAKA_PORTAL           (demo.local)
 //   KLAKA_API_URL          klaka-api sa servera, za /v1/keys       (http://localhost:18081)
 //   KLAKA_API_PUBLIC_URL   klaka-api iz browsera, za /v1/view      (= KLAKA_API_URL)
+//   KLAKA_COLLECTOR_PUBLIC_URL  klaka-collector iz browsera, za /v1/events (bez njega: bez događaja)
 //   KLAKA_SNIPPET          putanja do klaka.min.js                 (../ts/dist/klaka.min.js)
 //   KLAKA_MIN_AGE_MS, KLAKA_MAX_AGE_MS, KLAKA_MAX_USES               (2000, 7200000, 50)
 //   KLAKA_VALKEY_URL       brojač upotreba, ponovljeni glasovi, presude; bez njega se ne proveravaju
@@ -27,6 +28,7 @@ const PORTAL = env.KLAKA_PORTAL ?? "demo.local";
 const POST = "p-1001";
 const API = (env.KLAKA_API_URL ?? "http://localhost:18081").replace(/\/+$/, "");
 const API_PUBLIC = env.KLAKA_API_PUBLIC_URL ?? API;
+const COLLECTOR_PUBLIC = env.KLAKA_COLLECTOR_PUBLIC_URL ?? "";
 const POLICY: Policy = {
   minAgeMs: Number(env.KLAKA_MIN_AGE_MS ?? 2_000),
   maxAgeMs: Number(env.KLAKA_MAX_AGE_MS ?? 7_200_000),
@@ -105,7 +107,7 @@ const server = createServer((req, res) => {
       switch (route) {
         case "GET /":
           return send(res, 200, "text/html; charset=utf-8",
-            articlePage({ apiPublic: API_PUBLIC, portal: PORTAL, post: POST, comments }));
+            articlePage({ apiPublic: API_PUBLIC, collectorPublic: COLLECTOR_PUBLIC, portal: PORTAL, post: POST, comments }));
         case "GET /klaka.min.js":
           return send(res, 200, "text/javascript; charset=utf-8", snippet);
         case "POST /api/vote":

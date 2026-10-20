@@ -126,6 +126,7 @@ services:
       KLAKA_API_PUBLIC_URL: http://localhost:${API_PORT:-18081}
       KLAKA_VALKEY_URL: redis://valkey:6379/0
       KLAKA_COLLECTOR_URL: http://klaka-collector:8080
+      KLAKA_COLLECTOR_PUBLIC_URL: http://localhost:${COLLECTOR_PORT:-18080}
       KLAKA_API_KEY: ${KLAKA_DEMO_API_KEY:-dev-api-key}
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for

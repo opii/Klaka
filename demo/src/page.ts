@@ -48,6 +48,8 @@ const STYLE = `
 
 export function articlePage(o: {
   apiPublic: string;
+  /** klaka-collector iz browsera; prazno = događaji se ne šalju. */
+  collectorPublic: string;
   portal: string;
   post: string;
   comments: Comment[];
@@ -55,7 +57,7 @@ export function articlePage(o: {
   const list = o.comments
     .map(
       (c) => `
-      <div class="c" data-comment="${esc(c.id)}">
+      <div class="c" data-comment="${esc(c.id)}" data-klaka-comment="${esc(c.id)}">
         <div><div class="a">${esc(c.author)}</div><div>${esc(c.text)}</div></div>
         <div class="v">
           <button data-dir="1" aria-label="Plus za komentar">+</button>
@@ -73,7 +75,7 @@ export function articlePage(o: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Demo portal</title>
 <style>${STYLE}</style>
-<script src="/klaka.min.js" data-api="${esc(o.apiPublic)}" data-portal="${esc(o.portal)}" data-post="${esc(o.post)}" async></script>
+<script src="/klaka.min.js" data-api="${esc(o.apiPublic)}"${o.collectorPublic ? ` data-collector="${esc(o.collectorPublic)}"` : ""} data-portal="${esc(o.portal)}" data-post="${esc(o.post)}" async></script>
 </head>
 <body>
 <main>

@@ -3,29 +3,39 @@
 //
 // Upotreba bez koda (klasičan <script>):
 //   <script src="klaka.min.js" data-api="https://klaka.example.org"
+//           data-collector="https://collector.example.org"
 //           data-portal="demo.local" data-post="p-1001" async></script>
-// Ili ručno: klaka.init({ api, portal, post }).
+// Ili ručno: klaka.init({ api, collector, portal, post }).
 //
 // Token stiže u: (a) svako polje <input name="klaka_token"> na stranici, (b) klaka.headers()
 // za fetch pozive (zaglavlje X-Klaka-Token) — oba oblika SDK prihvata (core/spec/sdk.md §1).
+// Sa `collector`-om šalje i događaje `view`, `engage`, `compose` (core/spec/events.md §2).
 
-import { requestToken, type Options } from "./view.js";
+import { Sender } from "./send.js";
+import { track, type Tracking } from "./track.js";
+import { requestView, type Options } from "./view.js";
 
 export type { Options };
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 const FIELD = "klaka_token";
 const HEADER = "X-Klaka-Token";
 
 let pending: Promise<string | null> | null = null;
+let tracking: Tracking | null = null;
 
 /** Posle `load` događaja traži token (ne ranije: HTML članka je keširan na CDN-u). */
 export function init(o: Options): Promise<string | null> {
   pending = afterLoad()
-    .then(() => requestToken(o))
-    .then((t) => {
-      if (t) fillForms(t);
-      return t;
+    .then(() => requestView(o))
+    .then((v) => {
+      if (!v) return null;
+      fillForms(v.token);
+      if (o.collector) {
+        const url = o.collector.replace(/\/+$/, "") + "/v1/events";
+        tracking = track(v.vid, o.post, new Sender(url, o.portal));
+      }
+      return v.token;
     });
   return pending;
 }
@@ -48,6 +58,16 @@ export function fillForms(t: string, root: ParentNode = document): void {
   });
 }
 
+/** Šalje sažetak čitanja odmah (SPA navigacija; inače ide sam na `pagehide`). */
+export function flush(): void {
+  tracking?.flush();
+}
+
+/** Komentar iz polja `data-klaka-compose` je poslat fetch-om (za obične forme ide samo). */
+export function composed(el: HTMLInputElement | HTMLTextAreaElement): void {
+  tracking?.composed(el);
+}
+
 function afterLoad(): Promise<void> {
   if (document.readyState === "complete") return Promise.resolve();
   return new Promise((resolve) => window.addEventListener("load", () => resolve(), { once: true }));
@@ -57,5 +77,5 @@ function afterLoad(): Promise<void> {
 const self = document.currentScript as HTMLScriptElement | null;
 const d = self?.dataset;
 if (d?.api && d.portal && d.post) {
-  void init({ api: d.api, portal: d.portal, post: d.post });
+  void init({ api: d.api, portal: d.portal, post: d.post, ...(d.collector ? { collector: d.collector } : {}) });
 }

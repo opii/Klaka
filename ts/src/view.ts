@@ -7,6 +7,18 @@ export interface Options {
   post: string;
   /** Posle ovoliko ms se odustaje; podrazumevano 5000. */
   timeoutMs?: number;
+  /** Osnovni URL klaka-collector-a; bez njega se događaji ne šalju. */
+  collector?: string;
+}
+
+export interface View {
+  token: string;
+  vid: string;
+}
+
+/** Samo token (za portale koji ne šalju događaje). */
+export async function requestToken(o: Options, f: typeof fetch = fetch): Promise<string | null> {
+  return (await requestView(o, f))?.token ?? null;
 }
 
 /**
@@ -14,7 +26,7 @@ export interface Options {
  * Svaki neuspeh (mreža, status, tajmaut, neočekivan odgovor) daje `null` — stranica radi dalje,
  * a akcija bez tokena kod SDK-a ide u shadow.
  */
-export async function requestToken(o: Options, f: typeof fetch = fetch): Promise<string | null> {
+export async function requestView(o: Options, f: typeof fetch = fetch): Promise<View | null> {
   const ctrl = typeof AbortController === "function" ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), o.timeoutMs ?? 5000) : undefined;
   try {
@@ -26,9 +38,8 @@ export async function requestToken(o: Options, f: typeof fetch = fetch): Promise
       signal: ctrl ? ctrl.signal : null,
     });
     if (!res.ok) return null;
-    const body: unknown = await res.json();
-    const token = (body as { token?: unknown } | null)?.token;
-    return typeof token === "string" ? token : null;
+    const body = (await res.json()) as { token?: unknown; vid?: unknown } | null;
+    return typeof body?.token === "string" && typeof body.vid === "string" ? { token: body.token, vid: body.vid } : null;
   } catch {
     return null;
   } finally {
