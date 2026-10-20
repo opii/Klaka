@@ -1,3 +1,6 @@
+# Lokalni profili napadača izvedeni iz stvarnih slučajeva (klaker) — nikad u git.
+klaker/profiles.local/
+
 # Podaci portala — logovi, telemetrija, istorija moderacije. NIKAD u git (lični podaci).
 data/
 *.log

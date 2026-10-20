@@ -154,6 +154,7 @@ sdk/                     SDK-ovi za backend portala
   java/                                              → repo klaka-sdk-java
 ts/                      klijentska biblioteka (browser), TypeScript → repo klaka-ts
 demo/                    demo portal (Node, TypeScript) — PoC i e2e test celog lanca
+klaker/                  emulator napadača (Node, TypeScript, Playwright) — testiranje detekcije
 docs/                    zajednička dokumentacija (ostaje u korenu)
 ```
 
@@ -185,3 +186,17 @@ Zašto podela pri objavljivanju, a ne ranije — registri i poddirektorijumi:
 | PHP | PHPUnit, PHPStan |
 | Go | `go test`, `go vet` |
 | Java | JUnit 5, Maven |
+
+---
+
+## 8. Emulator napadača — klaker (`klaker/`)
+
+Referentni protivnik za testiranje detekcije u zatvorenom Docker Compose okruženju, bez
+živih portala. Igra klaku na nivoima od sirove skripte do ljudi u smenama, paralelno pušta
+legitimnu publiku i daje ground truth za odziv, lažne pozitive i simetriju po stranama.
+
+- **Tehnologija:** TypeScript/Node + Playwright (alat, ne deo našeg sistema — Rust ograničenje
+  se ne odnosi na njega).
+- **Profili:** generički u `klaker/profiles/`; profili izvedeni iz stvarnih slučajeva samo
+  lokalno (`klaker/profiles.local/`, van gita).
+- Detalji: [`klaker.md`](klaker.md).
