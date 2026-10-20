@@ -57,6 +57,32 @@ Svi nose `vid` (iz tokena) i `t` (ms, sat browsera).
 | `inputs` | `{"key":n,"ptr":n,"touch":n}` | broj interakcija po vrsti |
 | `comments_ms` | ceo broj \| null | kada je sekcija komentara prvi put postala vidljiva |
 | `seq` | ceo broj | redni broj sažetka za ovaj `vid` (periodično slanje); važi poslednji |
+| `seen` | niz stringova, ≤ 200 | ID-jevi komentara koji su bili **vidljivi** u ovom prikazu (vidi ispod), redom prvog pojavljivanja |
+
+**`seen` — koji komentari su bili na ekranu.** Portal svakom komentaru u HTML-u dodaje atribut
+`data-klaka-comment="<ID komentara>"` (isti ID kao `target` u `vote`). Komentar ulazi u `seen`
+kad je bar **50% vidljiv bar 500 ms** neprekidno (IntersectionObserver). Najviše 200 ID-jeva;
+posle toga se novi ne dodaju. Ništa osim ID-ja se ne beleži. Signal: glas na komentar koji u
+tom prikazu nije bio na ekranu (koncept §2a).
+
+### `compose` — kako je nastao komentar
+
+Šalje se pri slanju forme za komentar. Portal polje za tekst označava atributom
+`data-klaka-compose`. **Sadržaj teksta se ne šalje** (stiže preko SDK-a u `comment`), a ni
+vremena između tastera ni putanja miša — to bi bila biometrija.
+
+| Polje | Tip | Napomena |
+| --- | --- | --- |
+| `post` | string | |
+| `focus_ms` | ceo broj | od prvog fokusa polja do slanja |
+| `keys` | `"0"` \| `"1-10"` \| `"11-50"` \| `"51-200"` \| `"200+"` | broj pritisaka tastera u polju (kucanje + brisanje), **u rasponu** |
+| `pasted` | bool | da li je u polje bar jednom nalepljen tekst |
+| `pasted_chars` | `"0"` \| `"1-50"` \| `"51-200"` \| `"200+"` | ukupno nalepljenih znakova, u rasponu |
+| `length` | `"0"` \| `"1-50"` \| `"51-200"` \| `"201-1000"` \| `"1000+"` | dužina teksta pri slanju, u rasponu |
+
+Veza sa komentarom: browser ne zna ID komentara pre nego što ga server napravi, pa engine
+spaja `compose` i `comment` po `vid` i najbližem vremenu (`comment.t` posle `compose.t`).
+Potpis operatera, na primer: `keys = "0"`, `pasted = true`, `length = "201-1000"`.
 
 ### `honeypot` — interakcija sa mamac-elementom
 
@@ -87,10 +113,11 @@ Zajednička polja za `vote` i `comment`:
 
 ### `vote`
 
-| Polje | Tip |
-| --- | --- |
-| `target` | string — ID komentara (ili posta) na koji se glasa |
-| `dir` | `1` \| `-1` |
+| Polje | Tip | Napomena |
+| --- | --- | --- |
+| `target` | string | ID komentara (ili posta) na koji se glasa; isti ID kao u `data-klaka-comment` |
+| `target_author` | string \| null | pseudonim autora komentara na koji se glasa — za ciljnu dimenziju (koncept §2a): koordinisano guranje ili potiskivanje konkretnog komentatora |
+| `dir` | `1` \| `-1` | |
 
 ### `comment`
 
@@ -124,11 +151,25 @@ Identitet moderatora se ne šalje.
 | `section` | string \| null | rubrika (za cross-topic baseline) |
 | `body` | string \| null | *opciono:* tekst članka (javan) — za profil posta |
 
+### `promotion` — portal je sam promovisao post
+
+Legitiman blizanac vremenske dimenzije (koncept §8): nalet posle push notifikacije, naslovne
+strane ili newsletter-a nije napad. Portal javlja trenutak promocije, engine ga uzima u obzir.
+
+| Polje | Tip | Napomena |
+| --- | --- | --- |
+| `t` | ceo broj | trenutak promocije (slanje push-a, postavljanje na naslovnu…) |
+| `post` | string | |
+| `channel` | `"push"` \| `"homepage"` \| `"newsletter"` \| `"social"` \| `"other"` | `social` = zvaničan nalog portala na društvenoj mreži |
+
 ## 4. Obrada na collector-u
 
 1. IP zahteva → prefiks (/24, /48) **pre** bilo kakvog upisa; pun IP se ne upisuje nigde,
    ni u logove.
 2. ASN i država se dodaju iz prefiksa (iptoasn) na collector-u, ne u SDK-u.
 3. Za `/v1/events`: `vid` koji `klaka-api` nije izdao se ne odbacuje nego **označava** — to je
-   signal, ne greška.
-4. Upis u PostgreSQL, u tabele particionisane po danu; retencija (dani) = brisanje starih particija.
+   signal, ne greška. (Proveru radi engine spajanjem sa izdatim prikazima, ne collector na
+   ulazu.)
+4. Nepoznat tip događaja ili događaj sa poljem pogrešnog tipa se odbacuje pojedinačno; ostali
+   događaji iz iste koverte se upisuju. Odgovor je i dalje `204`.
+5. Upis u PostgreSQL, u tabele particionisane po danu; retencija (dani) = brisanje starih particija.

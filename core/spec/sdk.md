@@ -7,10 +7,11 @@ imena funkcija) su slobodni; ponašanje nije.
 
 ```
 verifier = Klaka(config)
-result   = verifier.onVote(request, post, target, dir)       → { decision }
+result   = verifier.onVote(request, post, target, targetAuthor, dir)  → { decision }
 result   = verifier.onComment(request, post, comment, author, text, replyTo)
 verifier.onModeration(comment, result, reason)
 verifier.onPost(post, rev, url, title, section, body)
+verifier.onPromotion(post, channel)
 ```
 
 `request` daje: token (zaglavlje `X-Klaka-Token` ili polje forme `klaka_token`), IP klijenta
