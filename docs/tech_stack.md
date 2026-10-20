@@ -154,7 +154,7 @@ sdk/                     SDK-ovi za backend portala
   java/                                              → repo klaka-sdk-java
 ts/                      klijentska biblioteka (browser), TypeScript → repo klaka-ts
 demo/                    demo portal (Node, TypeScript) — PoC i e2e test celog lanca
-klaker/                  emulator napadača (Node, TypeScript, Playwright) — testiranje detekcije
+caci/                    emulator ćacija (Node, TypeScript, Playwright) — testiranje detekcije
 docs/                    zajednička dokumentacija (ostaje u korenu)
 ```
 
@@ -189,14 +189,14 @@ Zašto podela pri objavljivanju, a ne ranije — registri i poddirektorijumi:
 
 ---
 
-## 8. Emulator napadača — klaker (`klaker/`)
+## 8. Emulator ćacija (`caci/`)
 
-Referentni protivnik za testiranje detekcije u zatvorenom Docker Compose okruženju, bez
-živih portala. Igra klaku na nivoima od sirove skripte do ljudi u smenama, paralelno pušta
-legitimnu publiku i daje ground truth za odziv, lažne pozitive i simetriju po stranama.
+**Ćaci** je zli ljudski bot — pojedinačni akter klake. Emulator je referentni protivnik za
+testiranje detekcije u zatvorenom Docker Compose okruženju, bez živih portala. Igra ćacije na nivoima od sirove
+skripte do ljudi u smenama, paralelno pušta legitimnu publiku i daje ground truth za odziv, lažne pozitive i simetriju po stranama.
 
 - **Tehnologija:** TypeScript/Node + Playwright (alat, ne deo našeg sistema — Rust ograničenje
   se ne odnosi na njega).
-- **Profili:** generički u `klaker/profiles/`; profili izvedeni iz stvarnih slučajeva samo
-  lokalno (`klaker/profiles.local/`, van gita).
-- Detalji: [`klaker.md`](klaker.md).
+- **Profili:** generički u `caci/profiles/`; profili izvedeni iz stvarnih slučajeva samo
+  lokalno (`caci/profiles.local/`, van gita).
+- Detalji: [`caci.md`](caci.md).
