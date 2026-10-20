@@ -4,7 +4,9 @@
 use std::time::Duration;
 
 use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
-use klaka_engine::{Config, ghost_cohorts, issue_net_shadow, net_key};
+use klaka_engine::{
+    Config, GHOST_VIEWS, NetVerdict, ghost_cohorts, issue_net_shadow, net_key, unread_cohorts,
+};
 use serde_json::json;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -14,7 +16,7 @@ fn cfg() -> Config {
         window: Duration::from_secs(600),
         min_votes: 5,
         min_vids: 3,
-        min_ghost_share: 0.8,
+        min_flagged_share: 0.8,
         ttl: Duration::from_secs(3600),
     }
 }
@@ -112,7 +114,7 @@ async fn ghost_cohort_found_twins_and_small_groups_not() {
     let found = ghost_cohorts(&pool, &cfg()).await.unwrap();
     let nets: Vec<_> = found.iter().map(|c| c.net.as_str()).collect();
     assert_eq!(nets, ["198.18.1.0/24"], "{found:?}");
-    assert_eq!((found[0].votes, found[0].vids, found[0].ghosts), (6, 6, 6));
+    assert_eq!((found[0].votes, found[0].vids, found[0].flagged), (6, 6, 6));
 
     if let Ok(url) = std::env::var("KLAKA_TEST_VALKEY_URL") {
         let mut valkey = redis::Client::open(url)
@@ -122,19 +124,17 @@ async fn ghost_cohort_found_twins_and_small_groups_not() {
             .unwrap();
         let net = format!("{schema}.0/24"); // jedinstven ključ po izvođenju
         let ev = json!({"test": true});
-        let rev = issue_net_shadow(
-            &pool,
-            &mut valkey,
-            "demo.local",
-            &net,
-            ev.clone(),
-            &cfg(),
-            1_000,
-        )
-        .await
-        .unwrap();
+        let verdict = |evidence| NetVerdict {
+            portal: "demo.local",
+            net: &net,
+            detector: GHOST_VIEWS,
+            evidence,
+        };
+        let rev = issue_net_shadow(&pool, &mut valkey, verdict(ev.clone()), &cfg(), 1_000)
+            .await
+            .unwrap();
         assert_eq!(rev, Some(1));
-        let again = issue_net_shadow(&pool, &mut valkey, "demo.local", &net, ev, &cfg(), 2_000)
+        let again = issue_net_shadow(&pool, &mut valkey, verdict(ev), &cfg(), 2_000)
             .await
             .unwrap();
         assert_eq!(again, None, "važeća presuda se ne ponavlja");
@@ -151,6 +151,66 @@ async fn ghost_cohort_found_twins_and_small_groups_not() {
             .await
             .unwrap();
     }
+
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+/// `n` glasova na `target` iz `net`, svaki sa svog prikaza koji ima browser `engage`.
+async fn engaged(store: &PgStore, net: &str, target: &str, n: usize, seen: &[&str], ptr: u32) {
+    let (mut api, mut server, mut browser) = (vec![], vec![], vec![]);
+    for i in 0..n {
+        let vid = format!("{net}-{i}");
+        api.push(row("issued", &vid, net, None));
+        let mut view = row("view", &vid, net, None);
+        view.data = json!({"type": "view"});
+        browser.push(view);
+        let mut engage = row("engage", &vid, net, None);
+        engage.data = json!({
+            "type": "engage", "seq": 0, "seen": seen,
+            "inputs": {"key": 0, "ptr": ptr, "touch": 0},
+        });
+        browser.push(engage);
+        server.push(row("vote", &vid, net, Some(target)));
+    }
+    for (source, rows) in [
+        (Source::Api, api),
+        (Source::Server, server),
+        (Source::Browser, browser),
+    ] {
+        store
+            .insert(Batch {
+                portal: "demo.local".into(),
+                source,
+                rows,
+            })
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn unread_votes_found_readers_and_ghosts_not() {
+    let Some((admin, pool, schema)) = schema("unread").await else {
+        return;
+    };
+    let store = PgStore(pool.clone());
+    engaged(&store, "198.18.11.0/24", "c1", 6, &["c2", "c3"], 2).await; // glas van seen
+    engaged(&store, "198.18.12.0/24", "c1", 6, &["c1", "c2"], 0).await; // bez ijednog unosa
+    engaged(&store, "198.18.13.0/24", "c1", 6, &["c1", "c2"], 3).await; // čitaoci: video + klik
+    scenario(&store, "198.18.14.0/24", "c1", 6, 6, 0).await; // duhovi: posao drugog detektora
+
+    let found = unread_cohorts(&pool, &cfg()).await.unwrap();
+    let nets: Vec<_> = found.iter().map(|c| c.net.as_str()).collect();
+    assert_eq!(nets, ["198.18.11.0/24", "198.18.12.0/24"], "{found:?}");
+    assert!(
+        found
+            .iter()
+            .all(|c| c.detector == "unread-votes" && c.flagged == 6)
+    );
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
