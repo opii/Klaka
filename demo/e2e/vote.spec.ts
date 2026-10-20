@@ -9,7 +9,14 @@ interface Vote {
   decision: "count" | "shadow";
 }
 
+/** Javni brojač (admin, samo demo) — `/api/comments` daje zbir kako ga vidi posetilac. */
 async function score(request: APIRequestContext, id: string): Promise<number> {
+  const comments = (await (await request.get("/admin/comments.json")).json()) as { id: string; score: number }[];
+  return comments.find((c) => c.id === id)!.score;
+}
+
+/** Zbir kako ga vidi ovaj posetilac (sa kolačićem iz `request` konteksta). */
+async function seen(request: APIRequestContext, id: string): Promise<number> {
   const comments = (await (await request.get("/api/comments")).json()) as { id: string; score: number }[];
   return comments.find((c) => c.id === id)!.score;
 }
@@ -44,15 +51,23 @@ test("čitalac: glas posle čitanja ulazi u javni brojač", async ({ page, reque
   await expect(page.locator('[data-comment="c1"] [data-score]')).toHaveText(String(before + 1));
 });
 
-test("prebrz glas posle učitavanja ide u shadow, a izgleda isto", async ({ page, request }) => {
+test("prebrz glas posle učitavanja ide u shadow, a izgleda isto", async ({ page, browser, request }) => {
   const before = await score(request, "c2");
   await openArticle(page);
   await clickVote(page, "c2", "1"); // odmah, token mlađi od 2 s
 
   expect(await lastVote(request)).toMatchObject({ comment: "c2", token: "too_young", decision: "shadow" });
   expect(await score(request, "c2"), "javni brojač se ne menja").toBe(before);
-  // Glasač vidi svoj glas kao i svaki drugi (princip 3: napadač ne zna da je otkriven).
-  await expect(page.locator('[data-comment="c2"] [data-score]')).toHaveText(String(before + 1));
+  // Glasač vidi svoj glas kao i svaki drugi (princip 3: napadač ne zna da je otkriven) —
+  // i posle osvežavanja stranice, dok drugi posetilac vidi javni zbir.
+  const mine = page.locator('[data-comment="c2"] [data-score]');
+  await expect(mine).toHaveText(String(before + 1));
+  await page.reload();
+  await expect(mine, "posle osvežavanja").toHaveText(String(before + 1));
+  const other = await browser.newPage();
+  await other.goto("/p/p-1001");
+  await expect(other.locator('[data-comment="c2"] [data-score]')).toHaveText(String(before));
+  await other.close();
 });
 
 test("bot bez tokena: isti odgovor, glas ne ulazi u brojač", async ({ request }) => {
@@ -63,6 +78,8 @@ test("bot bez tokena: isti odgovor, glas ne ulazi u brojač", async ({ request }
   expect(await res.json()).toEqual({ ok: true });
   expect(await lastVote(request)).toMatchObject({ comment: "c3", token: "missing", decision: "shadow" });
   expect(await score(request, "c3")).toBe(before);
+  // Ni bot ne vidi razliku: odgovor je postavio kolačić, pa mu zbir uključuje njegov glas.
+  expect(await seen(request, "c3")).toBe(before + 1);
 });
 
 test("lažan token: isti odgovor, glas ne ulazi u brojač", async ({ request }) => {

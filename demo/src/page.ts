@@ -22,6 +22,8 @@ export interface Comment {
 
 export interface VoteLog {
   t: number;
+  /** Kolačić posetioca koji je glasao — njemu se shadow glas prikazuje kao uračunat. */
+  owner: string | null;
   post: string;
   comment: string;
   dir: 1 | -1;

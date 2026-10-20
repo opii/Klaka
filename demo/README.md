@@ -12,7 +12,7 @@ docker compose run --rm e2e           # 8 testova u pravom browseru (Chromium)
 | Šta pokazuje | Ishod |
 | --- | --- |
 | čitalac glasa posle čitanja | `valid` → `count`, javni brojač +1 |
-| glas odmah posle učitavanja | `too_young` → shadow; glasaču izgleda isto |
+| glas odmah posle učitavanja | `too_young` → shadow; glasaču izgleda isto, i posle osvežavanja (vidi zbir sa svojim glasom, ostali javni) |
 | bot bez tokena (direktan POST) | `missing` → shadow, isti odgovor `{"ok":true}` |
 | lažan token | `bad_signature` → shadow, isti odgovor |
 | token drugog posta | `wrong_post` → shadow |

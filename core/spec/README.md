@@ -19,7 +19,9 @@ izmene samo uz novu verziju.
 2. **Pragovi se ne izlažu.** Ništa što napadač može da pročita (token, odgovor API-ja,
    JS kod) ne sadrži pragove ni razloge presude.
 3. **Isti odgovor bez obzira na presudu.** Portal korisniku vraća isti odgovor za glas koji
-   se računa i za glas koji ide u shadow. Napadač ne sme da sazna da je otkriven.
+   se računa i za glas koji ide u shadow — i isti prikaz, i posle osvežavanja stranice: izvor
+   vidi svoj komentar i zbir sa svojim glasom (`sdk.md` §2). Napadač ne sme da sazna da je
+   otkriven.
 4. **Pun IP ne napušta portal.** SDK šalje samo mrežni prefiks (IPv4 /24, IPv6 /48).
    Collector koji direktno prima zahteve iz browsera skraćuje IP pre bilo kakvog upisa.
 5. **Unapred kompatibilno.** Nepoznata polja u JSON-u se ignorišu. Nepoznata vrednost

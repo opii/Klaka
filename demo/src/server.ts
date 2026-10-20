@@ -63,6 +63,19 @@ const votes: VoteLog[] = [];
 /** Javni komentari i `shadow` komentari ovog posetioca. */
 const visible = (c: Comment, sid: string | null) => c.decision === "count" || (sid !== null && c.owner === sid);
 
+/**
+ * Zbirovi kako ih vidi posetilac: javni zbir plus njegovi shadow glasovi (sdk.md §2) — inače
+ * posle osvežavanja vidi da mu glas nije uračunat. Ostali vide samo javni zbir.
+ */
+function asSeenBy(list: Comment[], sid: string | null): Comment[] {
+  if (sid === null) return list;
+  const own = new Map<string, number>();
+  for (const v of votes) {
+    if (v.owner === sid && v.decision === "shadow") own.set(v.comment, (own.get(v.comment) ?? 0) + v.dir);
+  }
+  return own.size === 0 ? list : list.map((c) => (own.has(c.id) ? { ...c, score: c.score + own.get(c.id)! } : c));
+}
+
 // Ključevi se učitavaju sa klaka-api (spec token.md §6: MOŽE za razvoj; produkcija ih pinuje)
 // i osvežavaju, jer klaka-api bez KLAKA_SIGNING_SEED pravi nov ključ pri svakom startu.
 let klaka: Klaka | null = null;
@@ -87,7 +100,8 @@ async function refreshKeys(): Promise<void> {
 
 async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req);
-  const sid = cookie(req, SID);
+  const headers: Record<string, string> = {};
+  const sid = cookie(req, SID) ?? newSid(headers);
   // Komentar koji posetilac ne vidi (tuđ shadow) ne postoji za njega.
   const comment = comments.find((c) => c.id === body?.comment && visible(c, sid));
   const dir = body?.dir;
@@ -100,12 +114,12 @@ async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
     : { decision: "shadow" as const, vid: null, token: "unknown_key" as const, uses: null, repeat: null };
   if (r.decision === "count") comment.score += dir;
   votes.push({
-    t: now, post: comment.post, comment: comment.id, dir, vid: r.vid, token: r.token, uses: r.uses, repeat: r.repeat,
-    decision: r.decision,
+    t: now, owner: sid, post: comment.post, comment: comment.id, dir, vid: r.vid, token: r.token, uses: r.uses,
+    repeat: r.repeat, decision: r.decision,
   });
 
   // Isti odgovor za count i shadow (spec README, princip 3).
-  send(res, 200, "application/json", '{"ok":true}');
+  send(res, 200, "application/json", '{"ok":true}', headers);
 }
 
 async function comment(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -159,15 +173,14 @@ function article(req: IncomingMessage, res: ServerResponse, id: string): void {
   if (!post) return send(res, 404, "text/plain", "nema");
   const headers: Record<string, string> = {};
   const sid = cookie(req, SID) ?? newSid(headers);
-  const list = comments.filter((c) => c.post === post.id && visible(c, sid));
+  const list = asSeenBy(comments.filter((c) => c.post === post.id && visible(c, sid)), sid);
   send(res, 200, "text/html; charset=utf-8",
     articlePage({ apiPublic: API_PUBLIC, collectorPublic: COLLECTOR_PUBLIC, portal: PORTAL, post, comments: list }), headers);
 }
 
 function publicComments(req: IncomingMessage, post: string | null): object[] {
   const sid = cookie(req, SID);
-  return comments
-    .filter((c) => (post === null || c.post === post) && visible(c, sid))
+  return asSeenBy(comments.filter((c) => (post === null || c.post === post) && visible(c, sid)), sid)
     .map(({ id, post, author, text, score }) => ({ id, post, author, text, score }));
 }
 

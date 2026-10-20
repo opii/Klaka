@@ -36,8 +36,12 @@ verifier.onPromotion(post, channel)
 6. vrati { decision } portalu
 ```
 
-Portal: `count` → uračunaj u javni brojač; `shadow` → sačuvaj, prikaži samo izvoru, ne računaj.
-Odgovor korisniku MORA biti isti u oba slučaja (spec README, princip 3).
+Portal: `count` → uračunaj u javni brojač; `shadow` → sačuvaj, ne računaj, ali **izvoru
+prikaži kao da je uračunato**: shadow komentar mu je vidljiv, a zbir koji on vidi je javni zbir
+plus njegovi shadow glasovi. Izvora portal prepoznaje po svojoj sesiji ili nalogu; javni zbir
+se ne menja. Odgovor korisniku MORA biti isti u oba slučaja, a prikaz isti i posle osvežavanja
+stranice — inače izvor vidi da mu glas „nestaje" (spec README, princip 3). Isto važi i za
+naknadni shadow (§2b): zbir koji glasač vidi ne sme da padne.
 
 ### 2a. Jedan glas po prikazu i cilju
 

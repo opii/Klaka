@@ -71,7 +71,7 @@ Engine upisuje sve takve akcije iz prefiksa presude u prozoru dokaza i seče str
 (`XADD … MINID ~`). Portal čita unose posle poslednjeg obrađenog ID-ja (`sdk.md` §2b) i za svaki:
 
 - **komentar** — više se ne prikazuje javno; autor ga i dalje vidi kao svoj (princip 3);
-- **glas** — oduzima se od javnog zbira; glasaču se ništa ne javlja.
+- **glas** — oduzima se od javnog zbira; glasač i dalje vidi zbir sa svojim glasom (`sdk.md` §2).
 
 Obrada MORA biti idempotentna: isti unos može stići više puta (obnova presude, više instanci
 portala). Nepoznat ID se preskače. Naknadni shadow je **trajan** — ne vraća se kad presuda
