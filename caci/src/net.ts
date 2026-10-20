@@ -4,8 +4,17 @@
 export class Prefixes {
   private readonly free: number[];
 
-  constructor(private readonly rand: () => number = Math.random) {
-    this.free = Array.from({ length: 512 }, (_, i) => i);
+  /**
+   * `exclude`: prefiksi (`198.18.7.0/24`) koje ne treba koristiti — npr. oni sa važećom
+   * presudom iz ranijeg izvođenja, da je novo izvođenje ne nasledi.
+   */
+  constructor(
+    private readonly rand: () => number = Math.random,
+    exclude: ReadonlySet<string> = new Set(),
+  ) {
+    this.free = Array.from({ length: 512 }, (_, i) => i).filter(
+      (i) => !exclude.has(`198.${18 + (i >> 8)}.${i & 0xff}.0/24`),
+    );
     for (let i = this.free.length - 1; i > 0; i--) {
       const j = Math.floor(rand() * (i + 1));
       [this.free[i], this.free[j]] = [this.free[j]!, this.free[i]!];

@@ -9,13 +9,14 @@ import { sample, type Level, type Profile, type Role, type Side } from "./profil
 export interface Target {
   portalUrl: string;
   apiUrl: string;
+  collectorUrl: string;
   portal: string;
   post: string;
 }
 
 export interface Action {
   t: number;
-  role: Role | "reader";
+  role: Role | "reader" | "cgnat";
   side: Side | null;
   level: Level | null;
   actor: string;
@@ -49,10 +50,10 @@ const UA_READERS = [
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)]!;
 
-export async function run(profile: Profile, target: Target): Promise<RunLog> {
+export async function run(profile: Profile, target: Target, avoid: ReadonlySet<string> = new Set()): Promise<RunLog> {
   const runId = `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${randomBytes(3).toString("hex")}`;
   const actions: Action[] = [];
-  const nets = new Prefixes();
+  const nets = new Prefixes(Math.random, avoid);
   const started = Date.now();
 
   const comments = await fetchComments(target);
@@ -82,11 +83,15 @@ export async function run(profile: Profile, target: Target): Promise<RunLog> {
     }
   }
 
-  for (let i = 0; i < profile.audience.readers; i++) {
-    const prefix = nets.take();
+  // Legitimni blizanac (koncept §8): mnogo pravih čitalaca iza jednog prefiksa (CGNAT, firma).
+  const cgnat = nets.take();
+  const twins = profile.audience.cgnat ?? 0;
+  for (let i = 0; i < profile.audience.readers + twins; i++) {
+    const twin = i >= profile.audience.readers;
+    const prefix = twin ? cgnat : nets.take();
     const reader = {
-      id: `reader-${i}`, role: "reader" as const, side: null, level: null, ip: nets.host(prefix),
-      net: `${prefix}.0/24`, ua: pick(UA_READERS),
+      id: twin ? `cgnat-${i}` : `reader-${i}`, role: twin ? ("cgnat" as const) : ("reader" as const),
+      side: null, level: null, ip: nets.host(prefix), net: `${prefix}.0/24`, ua: pick(UA_READERS),
     };
     tasks.push(
       (async () => {
@@ -102,7 +107,7 @@ export async function run(profile: Profile, target: Target): Promise<RunLog> {
 
 interface Actor {
   id: string;
-  role: Role | "reader";
+  role: Role | "reader" | "cgnat";
   side: Side | null;
   level: Level | null;
   ip: string;
@@ -132,12 +137,52 @@ async function operative(
   }
 }
 
-/** Čitalac: uzima token kao snippet, čita, ponekad glasa. */
+/**
+ * Čitalac: radi ono što radi pravi browser sa snippetom — uzme token, pošalje `view`, čita,
+ * pošalje `engage` (skrolovao je, video komentare) i ponekad glasa.
+ */
 async function read(p: Profile, target: Target, a: Actor, comments: string[], log: Action[]): Promise<void> {
   const token = await view(target, a);
-  await sleep(sample(p.audience.read_ms));
+  if (token) await browserEvent(target, a, viewEvent(token, target));
+  const readMs = sample(p.audience.read_ms);
+  await sleep(readMs);
+  const choice = pick(comments);
+  if (token) await browserEvent(target, a, engageEvent(token, readMs, comments, choice));
   if (Math.random() < p.audience.vote_p) {
-    await vote(target, a, pick(comments), Math.random() < 0.7 ? 1 : -1, token, log);
+    await vote(target, a, choice, Math.random() < 0.7 ? 1 : -1, token, log);
+  }
+}
+
+function viewEvent(tok: Token, target: Target): Record<string, unknown> {
+  return {
+    type: "view", vid: tok.vid, t: Date.now(), post: target.post, ref: pick([null, "https://www.google.com/"]),
+    variant: null, lang: pick(["en-US", "de-DE", "fr-FR"]), tz_min: 60, vp: pick([[1300, 700], [400, 800], [1900, 1000]]),
+    auto: 0,
+  };
+}
+
+function engageEvent(tok: Token, readMs: number, comments: string[], voted: string): Record<string, unknown> {
+  const dwell = Math.round(readMs);
+  const hist = Array.from({ length: 10 }, (_, i) => Math.round((dwell * (10 - i)) / 55));
+  return {
+    type: "engage", vid: tok.vid, t: Date.now(), dwell_ms: dwell, visible_ms: Math.round(dwell * 0.9),
+    depth_max: 700 + Math.floor(Math.random() * 301), depth_hist: hist, jumps: 0,
+    first_input_ms: Math.round(dwell * 0.1), inputs: { key: 0, ptr: 3 + Math.floor(Math.random() * 10), touch: 0 },
+    comments_ms: Math.round(dwell * 0.6), seq: 0, seen: [...new Set([...comments.slice(0, 2), voted])],
+  };
+}
+
+/** Kao `sendBeacon` iz snippeta: `text/plain` na collector, sa adresom čitaoca. */
+async function browserEvent(target: Target, a: Actor, event: Record<string, unknown>): Promise<void> {
+  try {
+    const res = await fetch(`${target.collectorUrl}/v1/events`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8", "X-Forwarded-For": a.ip, "User-Agent": a.ua },
+      body: JSON.stringify({ v: 1, portal: target.portal, sent_ms: Date.now(), events: [event] }),
+    });
+    await res.body?.cancel();
+  } catch {
+    // kao i beacon: neuspeh se ne ponavlja
   }
 }
 

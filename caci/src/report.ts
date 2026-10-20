@@ -26,7 +26,8 @@ export function match(actions: Action[], votes: StoredVote[]): Map<Action, Store
     let best: StoredVote | null = null;
     for (const v of votes) {
       if (used.has(v) || v.target !== a.target || v.dir !== a.dir || v.net !== a.net) continue;
-      if (a.vid !== null && v.vid !== a.vid) continue;
+      // Bez vid-a u događaju: token nije prošao proveru potpisa — spaja se po ostalom.
+      if (a.vid !== null && v.vid !== null && v.vid !== a.vid) continue;
       const d = Math.abs(v.t - a.t);
       if (d <= MATCH_WINDOW_MS && (!best || d < Math.abs(best.t - a.t))) best = v;
     }
@@ -54,7 +55,7 @@ export function summarize(log: RunLog, votes: StoredVote[]): Row[] {
   const matched = match(log.actions, votes);
   const rows = new Map<string, Row>();
   for (const a of log.actions) {
-    const group = a.role === "reader" ? "čitaoci" : `${a.side} ${a.role === "caci" ? "ćaci" : "pojačivači"} (nivo ${a.level})`;
+    const group = groupOf(a);
     const r = rows.get(group) ?? { group, votes: 0, matched: 0, shadow: 0, counted: 0, tokens: {}, repeat: 0 };
     r.votes++;
     const v = matched.get(a);
@@ -86,7 +87,7 @@ export function format(log: RunLog, rows: Row[]): string {
   }
   lines.push(
     "",
-    "Za poslušnike je shadow odziv, za čitaoce lažni pozitivi. Pomeraj je ono što je klaka",
+    "Za poslušnike je shadow odziv, za čitaoce (i CGNAT) lažni pozitivi. Pomeraj je ono što je klaka",
     "zaista kupila; strane A i B (ogledalo) treba da imaju isti shadow.",
   );
   return lines.join("\n");
@@ -107,6 +108,74 @@ export async function loadVotes(url: string, log: RunLog): Promise<StoredVote[]>
       [log.portal, log.post, log.started_ms - MATCH_WINDOW_MS, log.ended_ms + MATCH_WINDOW_MS],
     );
     return res.rows.map((r) => ({ ...r, t: Number(r.t), dir: r.dir === -1 ? -1 : 1 }));
+  } finally {
+    await client.end();
+  }
+}
+
+export function groupOf(a: Action): string {
+  if (a.role === "reader") return "čitaoci";
+  if (a.role === "cgnat") return "čitaoci iza CGNAT-a";
+  return `${a.side} ${a.role === "caci" ? "ćaci" : "pojačivači"} (nivo ${a.level})`;
+}
+
+export interface StoredVerdict {
+  net: string;
+  rev: number;
+  created_ms: number;
+}
+
+/** Presude engine-a za prefikse ovog izvođenja: koga su pogodile i kada. */
+export function formatVerdicts(log: RunLog, verdicts: StoredVerdict[]): string {
+  const byNet = new Map<string, Map<string, number>>();
+  for (const a of log.actions) {
+    const g = byNet.get(a.net) ?? new Map<string, number>();
+    g.set(groupOf(a), (g.get(groupOf(a)) ?? 0) + 1);
+    byNet.set(a.net, g);
+  }
+  const ours = verdicts.filter((v) => byNet.has(v.net));
+  if (ours.length === 0) return "presude engine-a: nijedna";
+  const lines = [`presude engine-a (shadow po prefiksu): ${ours.length}`];
+  for (const v of ours.sort((x, y) => x.created_ms - y.created_ms)) {
+    const who = [...byNet.get(v.net)!].map(([g, n]) => `${g}: ${n} glasova`).join(", ");
+    const dt = Math.round((v.created_ms - log.started_ms) / 1000);
+    // Negativno: presuda iz ranijeg izvođenja koja još važi za prefiks ovog.
+    const when = dt >= 0 ? `+${dt} s` : `${dt} s (pre početka!)`;
+    lines.push(`  ${when}  ${v.net}  ←  ${who}`);
+  }
+  return lines.join("\n");
+}
+
+export async function loadVerdicts(url: string, log: RunLog): Promise<StoredVerdict[]> {
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    const res = await client.query<{ key: string; rev: number; created_ms: string }>(
+      `SELECT key, rev, (extract(epoch FROM created_at) * 1000)::bigint AS created_ms
+       FROM verdicts
+       WHERE portal = $1 AND key_kind = 'net' AND until_ms >= $2`,
+      [log.portal, log.started_ms],
+    );
+    return res.rows.map((r) => ({ net: r.key, rev: r.rev, created_ms: Number(r.created_ms) }));
+  } catch {
+    return []; // engine još nije napravio tabelu
+  } finally {
+    await client.end();
+  }
+}
+
+/** Prefiksi sa presudom koja još važi — emulator ih izbegava. */
+export async function activeVerdictNets(url: string, portal: string): Promise<Set<string>> {
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    const res = await client.query<{ key: string }>(
+      `SELECT DISTINCT key FROM verdicts WHERE portal = $1 AND key_kind = 'net' AND until_ms > $2`,
+      [portal, Date.now()],
+    );
+    return new Set(res.rows.map((r) => r.key));
+  } catch {
+    return new Set();
   } finally {
     await client.end();
   }

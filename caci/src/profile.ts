@@ -26,6 +26,8 @@ export interface Profile {
   token_per_vote: boolean;
   audience: {
     readers: number;
+    /** Legitimni blizanac: još ovoliko čitalaca, svi iza jednog prefiksa (CGNAT, firma). */
+    cgnat?: number;
     /** Vreme čitanja pre glasa. */
     read_ms: LogNormal;
     /** Verovatnoća da čitalac glasa. */
