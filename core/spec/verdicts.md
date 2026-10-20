@@ -35,7 +35,7 @@ Nepoznata `action` → `none`. Neparsabilna vrednost → `none` + SDK beleži gr
 
 ## 3. `challenge`
 
-Rezervisano za proof-of-work izazov (koncept §10 prethodnog predloga). **U v1 SDK tretira
+Rezervisano za proof-of-work izazov. **U v1 SDK tretira
 `challenge` kao `shadow`.**
 
 ## 4. Pravila za engine (normativna za `klaka-engine`)
