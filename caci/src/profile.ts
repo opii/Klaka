@@ -22,6 +22,8 @@ export interface Profile {
   delay_ms: LogNormal;
   /** Nivo 1: koliko čeka posle uzimanja tokena pre prvog glasa. */
   token_wait_ms: number;
+  /** Nivo 1: nov token (nov prikaz) za svaki glas, uzet unapred — umesto jednog za ceo zadatak. */
+  token_per_vote: boolean;
   audience: {
     readers: number;
     /** Vreme čitanja pre glasa. */
@@ -58,7 +60,7 @@ export function parseProfile(raw: unknown): Profile {
   if (!(p.audience?.readers >= 0) || !(p.audience.vote_p >= 0 && p.audience.vote_p <= 1)) fail("audience");
   checkLogNormal(p.delay_ms, "delay_ms", fail);
   checkLogNormal(p.audience.read_ms, "audience.read_ms", fail);
-  return { ...p, mirror: p.mirror === true };
+  return { ...p, mirror: p.mirror === true, token_per_vote: p.token_per_vote === true };
 }
 
 function checkLogNormal(d: LogNormal, name: string, fail: (m: string) => never): void {

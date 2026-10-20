@@ -110,41 +110,53 @@ interface Actor {
   ua: string;
 }
 
-/** Poslušnik: nivo 0 bez tokena, nivo 1 sa jednim tokenom za ceo zadatak. */
+/**
+ * Poslušnik. Nivo 0: bez tokena. Nivo 1: jedan token za ceo zadatak, ili (`token_per_vote`)
+ * po jedan nov prikaz za svaki glas — svi uzeti odjednom, pa iskorišćeni kad „sazru".
+ */
 async function operative(
   p: Profile, target: Target, a: Actor, goals: string[], dir: 1 | -1, log: Action[],
 ): Promise<void> {
-  let token: { token: string; vid: string } | null = null;
+  let tokens: (Token | null)[] = Array<Token | null>(p.votes).fill(null);
   if (p.level === 1) {
-    token = await view(target);
+    if (p.token_per_vote) {
+      tokens = await Promise.all(tokens.map(() => view(target, a)));
+    } else {
+      tokens.fill(await view(target, a));
+    }
     await sleep(p.token_wait_ms);
   }
   for (let n = 0; n < p.votes; n++) {
-    await vote(target, a, goals[n % goals.length]!, dir, token, log);
+    await vote(target, a, goals[n % goals.length]!, dir, tokens[n]!, log);
     await sleep(sample(p.delay_ms));
   }
 }
 
 /** Čitalac: uzima token kao snippet, čita, ponekad glasa. */
 async function read(p: Profile, target: Target, a: Actor, comments: string[], log: Action[]): Promise<void> {
-  const token = await view(target);
+  const token = await view(target, a);
   await sleep(sample(p.audience.read_ms));
   if (Math.random() < p.audience.vote_p) {
     await vote(target, a, pick(comments), Math.random() < 0.7 ? 1 : -1, token, log);
   }
 }
 
-async function view(target: Target): Promise<{ token: string; vid: string } | null> {
+interface Token {
+  token: string;
+  vid: string;
+}
+
+async function view(target: Target, a: Actor): Promise<Token | null> {
   const res = await fetch(`${target.apiUrl}/v1/view`, {
     method: "POST",
-    headers: { "Content-Type": "text/plain" },
+    headers: { "Content-Type": "text/plain", "X-Forwarded-For": a.ip },
     body: JSON.stringify({ portal: target.portal, post: target.post }),
   });
-  return res.ok ? ((await res.json()) as { token: string; vid: string }) : null;
+  return res.ok ? ((await res.json()) as Token) : null;
 }
 
 async function vote(
-  target: Target, a: Actor, comment: string, dir: 1 | -1, token: { token: string; vid: string } | null, log: Action[],
+  target: Target, a: Actor, comment: string, dir: 1 | -1, token: Token | null, log: Action[],
 ): Promise<void> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
