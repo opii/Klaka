@@ -164,6 +164,11 @@ async fn main() {
                 evidence,
             };
             match issue_net_shadow(&pool, &mut valkey, verdict, &cfg, now_ms()).await {
+                Ok(Some(i)) if i.top_up => eprintln!(
+                    "klaka-engine: dopuna naknadnog shadow-a {portal} {net} (rev {}): {} komentara, \
+                     {} glasova stiglo posle presude",
+                    i.rev, i.retro_comments, i.retro_votes
+                ),
                 Ok(Some(i)) => eprintln!(
                     "klaka-engine: presuda shadow {portal} {net} (rev {}, {detector}): {} kohorti, \
                      {} akcija; naknadno {} komentara, {} glasova",

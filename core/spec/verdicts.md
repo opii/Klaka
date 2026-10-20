@@ -69,7 +69,15 @@ akcije dobila `count`:
 | `vid`, `target` | samo za `vote`: prikaz i komentar na koji je glasano. Prikaz ima najviše jedan uračunat glas po cilju (`sdk.md` §2a), pa par jednoznačno određuje glas |
 
 Engine upisuje sve takve akcije iz prefiksa presude u prozoru dokaza i seče stream na 24 sata
-(`XADD … MINID ~`). Portal čita unose posle poslednjeg obrađenog ID-ja (`sdk.md` §2b) i za svaki:
+(`XADD … MINID ~`).
+
+**Dopuna.** Dok presuda važi, engine u svakom krugu u kome prefiks i dalje ima nalaz dopisuje u
+stream uračunate akcije prefiksa iz prozora kojih još nema u naknadnom shadow-u te presude. To su
+akcije koje je portal prihvatio pre nego što je presuda stigla do Valkey-ja, a u bazu su stigle
+posle nje (SDK šalje događaje u paketima; izmereno emulatorom: komentar prihvaćen 45 ms pre
+presude, primljen 150 ms posle nje), ili ih je prihvatio dok nije video Valkey. Poređenje ide
+preko spiska presude, ne preko satova portala i baze. Dopuna ide pod istu presudu (audit), ključ
+presude se ne menja, a prozor se ne širi unazad. Portal čita unose posle poslednjeg obrađenog ID-ja (`sdk.md` §2b) i za svaki:
 
 - **komentar** — više se ne prikazuje javno; autor ga i dalje vidi kao svoj (princip 3);
 - **glas** — oduzima se od javnog zbira; glasač i dalje vidi zbir sa svojim glasom (`sdk.md` §2).

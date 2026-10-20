@@ -443,6 +443,9 @@ const RETRO_KEEP_MS: i64 = 24 * 3600 * 1000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Issued {
     pub rev: i32,
+    /// Važeća presuda, samo dopuna naknadnog shadow-a: akcije koje je portal uračunao, a u bazu
+    /// su stigle posle presude.
+    pub top_up: bool,
     pub retro_comments: usize,
     pub retro_votes: usize,
 }
@@ -450,8 +453,14 @@ pub struct Issued {
 /// Upisuje presudu `shadow` za prefiks: audit u PostgreSQL, ključ i naknadni shadow u Valkey,
 /// zajedno — ako Valkey ne uspe, audit se poništava (verdicts.md §4: nema presude bez zapisa,
 /// ni obrnuto). Naknadni shadow su sve akcije prefiksa sa odlukom `count` iz poslednjih
-/// `cfg.retro`; njihov broj ide i u dokaze. Ako važeća presuda postoji i važi još bar pola
-/// roka, ne radi ništa (`Ok(None)`).
+/// `cfg.retro`; njihov broj ide i u dokaze.
+///
+/// Ako važeća presuda postoji i važi još bar pola roka, samo je dopunjuje (verdicts.md §5):
+/// akcije prefiksa sa odlukom `count` iz poslednjih `cfg.retro` kojih još nema u njenom
+/// naknadnom shadow-u idu pod istu presudu. To su akcije koje je portal prihvatio pre nego što
+/// je presuda stigla do Valkey-ja, a u bazu su stigle posle nje (SDK šalje događaje u paketima),
+/// ili prihvaćene dok portal nije video Valkey. Bez poređenja satova portala i baze. Kad nema
+/// šta da dopuni, ne radi ništa (`Ok(None)`).
 pub async fn issue_net_shadow(
     pool: &PgPool,
     valkey: &mut MultiplexedConnection,
@@ -467,8 +476,8 @@ pub async fn issue_net_shadow(
     } = verdict;
     let ttl_ms = i64::try_from(cfg.ttl.as_millis()).unwrap_or(i64::MAX);
     let mut tx = pool.begin().await.map_err(IssueError::Db)?;
-    let last: Option<(i64, i32)> = sqlx::query_as(
-        "SELECT until_ms, rev FROM verdicts
+    let last: Option<(i64, i64, i32)> = sqlx::query_as(
+        "SELECT id, until_ms, rev FROM verdicts
          WHERE portal = $1 AND key_kind = 'net' AND key = $2
          ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
     )
@@ -477,54 +486,67 @@ pub async fn issue_net_shadow(
     .fetch_optional(&mut *tx)
     .await
     .map_err(IssueError::Db)?;
-    if let Some((until, _)) = last {
-        if until - now_ms > ttl_ms / 2 {
-            return Ok(None);
-        }
-    }
-    let rev = last.map_or(1, |(_, r)| r + 1);
-    let until_ms = now_ms + ttl_ms;
+    // Važeća presuda se dopunjuje; inače nova (ili obnova).
+    let active = last.filter(|&(_, until, _)| until - now_ms > ttl_ms / 2);
 
+    // Bez važeće presude ($4 je NULL) sve uračunate akcije iz prozora; sa njom one kojih još
+    // nema u njenom naknadnom shadow-u (komentar po ID-ju, glas po (vid, cilj)).
     let retro: Vec<RetroAction> = sqlx::query_as(
         "SELECT type AS kind, post, data->>'comment' AS comment,
                 CASE WHEN type = 'vote' THEN vid END AS vid,
                 CASE WHEN type = 'vote' THEN data->>'target' END AS target
-         FROM events
+         FROM events e
          WHERE portal = $1 AND net = $2 AND source = 'server' AND type IN ('vote', 'comment')
            AND data->>'decision' = 'count' AND post IS NOT NULL
            AND (type = 'comment' OR vid IS NOT NULL)
            AND recv_at > now() - make_interval(secs => $3)
+           AND ($4::bigint IS NULL OR NOT EXISTS (
+               SELECT 1 FROM verdict_retro r
+               WHERE r.verdict_id = $4 AND r.kind = e.type
+                 AND (r.comment = e.data->>'comment'
+                      OR (r.vid = e.vid AND r.target = e.data->>'target'))
+           ))
          ORDER BY recv_at",
     )
     .bind(portal)
     .bind(net)
     .bind(cfg.retro.as_secs_f64())
+    .bind(active.map(|(id, _, _)| id))
     .fetch_all(&mut *tx)
     .await
     .map_err(IssueError::Db)?;
     let retro_comments = retro.iter().filter(|a| a.kind == "comment").count();
     let retro_votes = retro.len() - retro_comments;
-    if let Value::Object(map) = &mut evidence {
-        map.insert(
-            "retro".to_owned(),
-            json!({"window_s": cfg.retro.as_secs(), "comments": retro_comments, "votes": retro_votes}),
-        );
-    }
 
-    let (id,): (i64,) = sqlx::query_as(
-        "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence)
-         VALUES ($1, 'net', $2, 'shadow', $3, $4, $5, $6)
-         RETURNING id",
-    )
-    .bind(portal)
-    .bind(net)
-    .bind(until_ms)
-    .bind(rev)
-    .bind(detector)
-    .bind(evidence)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(IssueError::Db)?;
+    let (id, rev, until_ms) = match active {
+        Some(_) if retro.is_empty() => return Ok(None),
+        Some((id, until_ms, rev)) => (id, rev, until_ms),
+        None => {
+            let rev = last.map_or(1, |(_, _, r)| r + 1);
+            let until_ms = now_ms + ttl_ms;
+            if let Value::Object(map) = &mut evidence {
+                map.insert(
+                    "retro".to_owned(),
+                    json!({"window_s": cfg.retro.as_secs(), "comments": retro_comments, "votes": retro_votes}),
+                );
+            }
+            let (id,): (i64,) = sqlx::query_as(
+                "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence)
+                 VALUES ($1, 'net', $2, 'shadow', $3, $4, $5, $6)
+                 RETURNING id",
+            )
+            .bind(portal)
+            .bind(net)
+            .bind(until_ms)
+            .bind(rev)
+            .bind(detector)
+            .bind(evidence)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(IssueError::Db)?;
+            (id, rev, until_ms)
+        }
+    };
     if !retro.is_empty() {
         sqlx::query(
             "INSERT INTO verdict_retro (verdict_id, kind, post, comment, vid, target)
@@ -543,15 +565,17 @@ pub async fn issue_net_shadow(
 
     // Presuda i naknadni shadow u Valkey jednom transakcijom (MULTI). MULTI ne poništava ostale
     // komande kad jedna padne u izvršenju, pa sve što bi XADD moglo da odbije (ID) mora biti
-    // ispravno pre slanja.
+    // ispravno pre slanja. Dopuna ne dira ključ: PX bi produžio rok presude.
     let mut pipe = redis::pipe();
-    pipe.atomic()
-        .cmd("SET")
-        .arg(net_key(portal, net))
-        .arg(verdict_value("shadow", until_ms, rev))
-        .arg("PX")
-        .arg(ttl_ms)
-        .ignore();
+    pipe.atomic();
+    if active.is_none() {
+        pipe.cmd("SET")
+            .arg(net_key(portal, net))
+            .arg(verdict_value("shadow", until_ms, rev))
+            .arg("PX")
+            .arg(ttl_ms)
+            .ignore();
+    }
     let min_id = format!("{}-0", (now_ms - RETRO_KEEP_MS).max(0));
     for a in &retro {
         let cmd = pipe
@@ -572,6 +596,7 @@ pub async fn issue_net_shadow(
     tx.commit().await.map_err(IssueError::Db)?;
     Ok(Some(Issued {
         rev,
+        top_up: active.is_some(),
         retro_comments,
         retro_votes,
     }))

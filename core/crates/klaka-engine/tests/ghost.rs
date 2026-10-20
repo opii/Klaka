@@ -563,23 +563,74 @@ async fn verdict_sends_counted_actions_of_the_prefix_to_retro() {
         .await
         .unwrap();
 
-    let verdict = NetVerdict {
+    let verdict = || NetVerdict {
         portal: &portal,
         net,
         detector: "test",
         evidence: json!({}),
     };
-    let issued = issue_net_shadow(&pool, &mut valkey, verdict, &cfg(), 1_000)
+    let issued = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), 1_000)
         .await
         .unwrap();
     assert_eq!(
         issued,
         Some(Issued {
             rev: 1,
+            top_up: false,
             retro_comments: 1,
             retro_votes: 1
         })
     );
+    let ttl: i64 = redis::cmd("PTTL")
+        .arg(net_key(&portal, net))
+        .query_async(&mut valkey)
+        .await
+        .unwrap();
+
+    // Portal ih je uračunao pre nego što je presuda stigla do Valkey-ja, a u bazu su stigle
+    // posle nje (SDK šalje u paketima): sledeći krug ih dopuni pod istom presudom.
+    store
+        .insert(Batch {
+            portal: portal.clone(),
+            source: Source::Server,
+            rows: vec![
+                action("comment", Some("v6"), net, "count", "k3"),
+                action("vote", Some("v7"), net, "count", "c3"),
+                action("vote", Some("v8"), net, "shadow", "c3"), // presuda ga je već videla
+            ],
+        })
+        .await
+        .unwrap();
+    let topped = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), 2_000)
+        .await
+        .unwrap();
+    assert_eq!(
+        topped,
+        Some(Issued {
+            rev: 1,
+            top_up: true,
+            retro_comments: 1,
+            retro_votes: 1
+        })
+    );
+    let again = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), 3_000)
+        .await
+        .unwrap();
+    assert_eq!(again, None, "dopunjeno se ne šalje ponovo");
+    let ttl_after: i64 = redis::cmd("PTTL")
+        .arg(net_key(&portal, net))
+        .query_async(&mut valkey)
+        .await
+        .unwrap();
+    assert!(
+        ttl_after <= ttl,
+        "dopuna ne produžava presudu: {ttl} → {ttl_after}"
+    );
+    let verdicts: i64 = sqlx::query_scalar("SELECT count(*) FROM verdicts")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(verdicts, 1, "dopuna je pod istom presudom");
 
     let audit: Vec<String> = sqlx::query_scalar(
         "SELECT concat_ws(' ', kind, comment, vid, target) FROM verdict_retro ORDER BY kind",
@@ -587,7 +638,10 @@ async fn verdict_sends_counted_actions_of_the_prefix_to_retro() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(audit, ["comment k1", "vote v1 c1"]);
+    assert_eq!(
+        audit,
+        ["comment k1", "comment k3", "vote v1 c1", "vote v7 c3"]
+    );
     let entries: Vec<(String, Vec<String>)> = redis::cmd("XRANGE")
         .arg(retro_key(&portal))
         .arg("-")
@@ -595,14 +649,16 @@ async fn verdict_sends_counted_actions_of_the_prefix_to_retro() {
         .query_async(&mut valkey)
         .await
         .unwrap();
-    // Obe akcije su upisane istim INSERT-om (isto vreme prijema), pa redosled nije zadat.
+    // Akcije jednog paketa su upisane istim INSERT-om (isto vreme prijema), pa redosled nije zadat.
     let mut fields: Vec<_> = entries.into_iter().map(|(_, f)| f.join(" ")).collect();
     fields.sort();
     assert_eq!(
         fields,
         [
             "kind comment post p-1 comment k1",
-            "kind vote post p-1 vid v1 target c1"
+            "kind comment post p-1 comment k3",
+            "kind vote post p-1 vid v1 target c1",
+            "kind vote post p-1 vid v7 target c3"
         ]
     );
 
