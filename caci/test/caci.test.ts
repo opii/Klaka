@@ -17,7 +17,7 @@ function action(over: Partial<Action>): Action {
 }
 
 function stored(over: Partial<StoredVote>): StoredVote {
-  return { t: 1_005, vid: null, net: "198.18.1.0/24", target: "c1", dir: 1, token: "missing", decision: "shadow", ...over };
+  return { t: 1_005, vid: null, net: "198.18.1.0/24", target: "c1", dir: 1, token: "missing", decision: "shadow", repeat: null, ...over };
 }
 
 test("spajanje: cilj, smer, prefiks, vid i vremenski prozor", () => {

@@ -13,6 +13,7 @@ export interface StoredVote {
   dir: 1 | -1;
   token: string;
   decision: "count" | "shadow" | "challenge";
+  repeat: boolean | null;
 }
 
 export const MATCH_WINDOW_MS = 2_000;
@@ -45,6 +46,8 @@ export interface Row {
   /** Pomeraj javnog zbira: zbir smerova glasova koji su uračunati. */
   counted: number;
   tokens: Record<string, number>;
+  /** Glasovi u shadow zbog pravila jedan glas po (vid, cilj), sdk.md §2a. */
+  repeat: number;
 }
 
 export function summarize(log: RunLog, votes: StoredVote[]): Row[] {
@@ -52,7 +55,7 @@ export function summarize(log: RunLog, votes: StoredVote[]): Row[] {
   const rows = new Map<string, Row>();
   for (const a of log.actions) {
     const group = a.role === "reader" ? "čitaoci" : `${a.side} ${a.role === "caci" ? "ćaci" : "pojačivači"} (nivo ${a.level})`;
-    const r = rows.get(group) ?? { group, votes: 0, matched: 0, shadow: 0, counted: 0, tokens: {} };
+    const r = rows.get(group) ?? { group, votes: 0, matched: 0, shadow: 0, counted: 0, tokens: {}, repeat: 0 };
     r.votes++;
     const v = matched.get(a);
     if (v) {
@@ -60,6 +63,7 @@ export function summarize(log: RunLog, votes: StoredVote[]): Row[] {
       if (v.decision === "count") r.counted += v.dir;
       else r.shadow++;
       r.tokens[v.token] = (r.tokens[v.token] ?? 0) + 1;
+      if (v.repeat) r.repeat++;
     }
     rows.set(group, r);
   }
@@ -74,7 +78,7 @@ export function format(log: RunLog, rows: Row[]): string {
     "grupa                          glasova  u bazi  shadow  uračunato (pomeraj)  token",
   ];
   for (const r of rows) {
-    const tokens = Object.entries(r.tokens).map(([k, n]) => `${k} ${n}`).join(", ");
+    const tokens = Object.entries(r.tokens).map(([k, n]) => `${k} ${n}`).join(", ") + (r.repeat ? `; ponovljen ${r.repeat}` : "");
     lines.push(
       `${r.group.padEnd(30)} ${String(r.votes).padStart(7)} ${String(r.matched).padStart(7)} ` +
         `${pct(r.shadow, r.matched).padStart(7)}  ${String(r.counted).padStart(19)}  ${tokens}`,
@@ -93,10 +97,11 @@ export async function loadVotes(url: string, log: RunLog): Promise<StoredVote[]>
   await client.connect();
   try {
     const res = await client.query<{
-      t: string; vid: string | null; net: string; target: string; dir: number; token: string; decision: StoredVote["decision"];
+      t: string; vid: string | null; net: string; target: string; dir: number; token: string; decision: StoredVote["decision"]; repeat: boolean | null;
     }>(
       `SELECT t, vid, net, data->>'target' AS target, (data->>'dir')::int AS dir,
-              data->>'token' AS token, data->>'decision' AS decision
+              data->>'token' AS token, data->>'decision' AS decision,
+              (data->>'repeat')::boolean AS repeat
        FROM events
        WHERE type = 'vote' AND portal = $1 AND post = $2 AND t BETWEEN $3 AND $4`,
       [log.portal, log.post, log.started_ms - MATCH_WINDOW_MS, log.ended_ms + MATCH_WINDOW_MS],

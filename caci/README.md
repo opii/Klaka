@@ -21,4 +21,4 @@ Profili izvedeni iz stvarnih slučajeva idu u `profiles.local/`, takođe van git
 | Profil | Šta pokazuje |
 | --- | --- |
 | `rafal-0.json` | skripta bez tokena: sve u `shadow`, pomeraj 0 |
-| `token-1.json` | strpljiv poslušnik sa jednim tokenom: do `max_uses` glasova se računa — rupa koju zatvara pravilo „jedan glas po (vid, cilj)" (sledi) |
+| `token-1.json` | strpljiv poslušnik sa jednim tokenom, 60 glasova: računa se samo prvi glas po (`vid`, cilj), ostalo `shadow` (`sdk.md` §2a). Pre tog pravila: do `max_uses` uračunatih glasova po tokenu, pomeraj +300/−150 po strani; posle: +12/−3, `shadow` 97–98% |
