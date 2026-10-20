@@ -17,9 +17,22 @@ const decision = decide(v.result, strongest([parseVerdict(raw, Date.now())])); /
 
 Portal korisniku vraća **isti odgovor** za `count` i `shadow` (spec README, princip 3).
 
+Događaji idu collector-u u pozadini — `send` ne čeka mrežu, a ako collector ne odgovara,
+događaji se posle 30 s odbacuju (`sdk.md` §2, korak 5):
+
+```ts
+import { EventSender, netPrefix, truncateUa } from "@klaka/sdk-node";
+
+const events = new EventSender({ portal: "demo.local", collectorUrl: "http://klaka-collector:8080", apiKey });
+events.send({ type: "vote", t: Date.now(), post: postId, vid: v.payload?.vid ?? null, token: v.result,
+  uses, decision, net: netPrefix(ip) ?? "", ua: truncateUa(req.headers["user-agent"]),
+  target: commentId, target_author: author, dir });
+await events.flush();   // pri gašenju procesa
+```
+
 | Gotovo | Sledi |
 | --- | --- |
-| provera tokena (34/34 zajedničkih vektora), presude, odluka | Valkey (brojač upotreba, `MGET` presuda), slanje događaja collector-u, `onVote` / `onComment` (`sdk.md` §1–§2) |
+| provera tokena (34/34 zajedničkih vektora), presude, odluka, slanje događaja | Valkey (brojač upotreba, `MGET` presuda), `onVote` / `onComment` (`sdk.md` §1–§2) |
 
 ```bash
 docker compose run --rm -w /work/sdk/node node npm test   # iz korena repoa
