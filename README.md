@@ -2,7 +2,8 @@
 # Klaka
 
 Detekcija koordinisanih napada (glasovi, komentari) na portalima — isključivo iz podataka
-koje portal sam može da prikupi. Polazna tačka: [`docs/koncept_detekcija_sa_portala.md`](docs/koncept_detekcija_sa_portala.md).
+koje portal sam može da prikupi. Polazna tačka: [`docs/koncept_detekcija_sa_portala.md`](docs/koncept_detekcija_sa_portala.md);
+pojmovi: [`docs/recnik.md`](docs/recnik.md).
 
 ## Zašto „Klaka"
 
