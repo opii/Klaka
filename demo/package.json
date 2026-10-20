@@ -4,14 +4,17 @@
   "private": true,
   "description": "Demo portal: članak, komentari, glasanje; ceo lanac ts → klaka-api → sdk/node.",
   "type": "module",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc -p .",
     "start": "node dist/server.js",
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@klaka/sdk-node": "file:../sdk/node"
+    "@klaka/sdk-node": "file:../sdk/node",
+    "redis": "^4.7.1"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

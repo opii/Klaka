@@ -7,6 +7,7 @@
 //   KLAKA_API_PUBLIC_URL   klaka-api iz browsera, za /v1/view      (= KLAKA_API_URL)
 //   KLAKA_SNIPPET          putanja do klaka.min.js                 (../ts/dist/klaka.min.js)
 //   KLAKA_MIN_AGE_MS, KLAKA_MAX_AGE_MS, KLAKA_MAX_USES               (2000, 7200000, 50)
+//   KLAKA_VALKEY_URL       brojač upotreba, ponovljeni glasovi, presude; bez njega se ne proveravaju
 //   KLAKA_COLLECTOR_URL, KLAKA_API_KEY   slanje događaja; bez njih se događaji ne šalju
 //   KLAKA_CLIENT_IP_HEADER   zaglavlje sa IP-jem klijenta iza pouzdanog proxy-ja (npr.
 //                            x-forwarded-for, važi poslednja vrednost). SAMO za test okruženje:
@@ -15,9 +16,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 
-import { EventSender, TokenVerifier, decide, netPrefix, truncateUa, type Policy } from "@klaka/sdk-node";
+import { EventSender, Klaka, type Policy } from "@klaka/sdk-node";
 
 import { adminPage, articlePage, type Comment, type VoteLog } from "./page.js";
+import { valkeyStore } from "./valkey.js";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 3000);
@@ -37,6 +39,7 @@ const events =
   env.KLAKA_COLLECTOR_URL && env.KLAKA_API_KEY
     ? new EventSender({ portal: PORTAL, collectorUrl: env.KLAKA_COLLECTOR_URL, apiKey: env.KLAKA_API_KEY })
     : null;
+const store = env.KLAKA_VALKEY_URL ? await valkeyStore(env.KLAKA_VALKEY_URL) : null;
 
 const snippet = readSnippet(env.KLAKA_SNIPPET ?? "../ts/dist/klaka.min.js");
 
@@ -47,12 +50,10 @@ const comments: Comment[] = [
   { id: "c4", author: "Stefan", text: "Nadam se da radovi neće trajati do leta.", score: 0 },
 ];
 const votes: VoteLog[] = [];
-// Brojač upotreba po vid-u. PoC: u memoriji; po spec-u (sdk.md §2) ovo je Valkey INCR sa TTL-om.
-const uses = new Map<string, number>();
 
 // Ključevi se učitavaju sa klaka-api (spec token.md §6: MOŽE za razvoj; produkcija ih pinuje)
 // i osvežavaju, jer klaka-api bez KLAKA_SIGNING_SEED pravi nov ključ pri svakom startu.
-let verifier: TokenVerifier | null = null;
+let klaka: Klaka | null = null;
 let keysJson = "";
 
 async function refreshKeys(): Promise<void> {
@@ -62,7 +63,8 @@ async function refreshKeys(): Promise<void> {
     const body = (await res.json()) as { keys: Record<string, string> };
     const json = JSON.stringify(body.keys);
     if (json !== keysJson) {
-      verifier = new TokenVerifier(PORTAL, body.keys, POLICY);
+      if (klaka) klaka.setKeys(body.keys);
+      else klaka = new Klaka({ portal: PORTAL, keys: body.keys, policy: POLICY, ...(store && { store }), ...(events && { events }) });
       keysJson = json;
       console.log(`ključevi učitani: ${Object.keys(body.keys).join(", ")}`);
     }
@@ -82,26 +84,14 @@ async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const now = Date.now();
 
   // Bez ključeva (klaka-api nedostupan pri startu) nijedan token ne može da se proveri.
-  let v = verifier ? verifier.verify(token, POST, now) : { result: "unknown_key" as const, payload: null };
-  let n: number | null = null;
-  if (verifier && v.payload) {
-    n = (uses.get(v.payload.vid) ?? 0) + 1;
-    uses.set(v.payload.vid, n);
-    v = verifier.checkUses(v, n);
-  }
-  const decision = decide(v.result, "none"); // presude iz Valkey-ja: sledeći korak
-  if (decision === "count") comment.score += dir;
-  const vid = v.payload?.vid ?? null;
-  votes.push({ t: now, comment: comment.id, dir, vid, token: v.result, uses: n, decision });
-
-  // Pun IP ostaje ovde; collector dobija samo prefiks (events.md §3).
-  const net = netPrefix(clientIp(req));
-  if (events && net) {
-    events.send({
-      type: "vote", t: now, post: POST, vid, token: v.result, uses: n, decision, net,
-      ua: truncateUa(req.headers["user-agent"]), target: comment.id, target_author: comment.author, dir,
-    });
-  }
+  const r = klaka
+    ? await klaka.onVote(
+        { token, ip: clientIp(req), ua: req.headers["user-agent"] },
+        { post: POST, target: comment.id, targetAuthor: comment.author, dir },
+      )
+    : { decision: "shadow" as const, vid: null, token: "unknown_key" as const, uses: null, repeat: null };
+  if (r.decision === "count") comment.score += dir;
+  votes.push({ t: now, comment: comment.id, dir, vid: r.vid, token: r.token, uses: r.uses, repeat: r.repeat, decision: r.decision });
 
   // Isti odgovor za count i shadow (spec README, princip 3).
   send(res, 200, "application/json", '{"ok":true}');

@@ -15,6 +15,7 @@ export interface VoteLog {
   vid: string | null;
   token: string;
   uses: number | null;
+  repeat: boolean | null;
   decision: "count" | "shadow";
 }
 
@@ -119,7 +120,7 @@ export function adminPage(votes: VoteLog[], comments: Comment[]): string {
       (v) => `<tr>
         <td>${esc(new Date(v.t).toISOString().slice(11, 23))}</td>
         <td>${esc(v.comment)}</td><td>${v.dir > 0 ? "+1" : "−1"}</td>
-        <td>${esc(v.token)}</td><td>${esc(v.uses)}</td>
+        <td>${esc(v.token)}</td><td>${esc(v.uses)}</td><td>${v.repeat === null ? "" : v.repeat ? "da" : "ne"}</td>
         <td class="${v.decision}">${esc(v.decision)}</td><td>${esc(v.vid)}</td></tr>`,
     )
     .join("");
@@ -130,8 +131,8 @@ export function adminPage(votes: VoteLog[], comments: Comment[]): string {
 <body><main>
 <div class="kicker">Samo za demo</div>
 <h1>Glasovi</h1>
-<table><thead><tr><th>vreme (UTC)</th><th>komentar</th><th>glas</th><th>token</th><th>upotrebe</th><th>odluka</th><th>vid</th></tr></thead>
-<tbody>${rows || `<tr><td colspan="7">Još nema glasova.</td></tr>`}</tbody></table>
+<table><thead><tr><th>vreme (UTC)</th><th>komentar</th><th>glas</th><th>token</th><th>upotrebe</th><th>ponovljen</th><th>odluka</th><th>vid</th></tr></thead>
+<tbody>${rows || `<tr><td colspan="8">Još nema glasova.</td></tr>`}</tbody></table>
 <h2>Javni brojač</h2>
 <table><thead><tr><th>komentar</th><th>skor</th></tr></thead><tbody>${scores}</tbody></table>
 <p><a href="/">← nazad na članak</a></p>
