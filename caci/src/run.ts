@@ -23,9 +23,12 @@ export interface PortalComment {
   post: string;
 }
 
+/** Ko pravi akciju: poslušnik po ulozi ili publika (čitalac, CGNAT, verni čitalac posle push-a). */
+export type Who = Role | "reader" | "cgnat" | "push";
+
 export interface Action {
   t: number;
-  role: Role | "reader" | "cgnat";
+  role: Who;
   side: Side | null;
   level: Level | null;
   actor: string;
@@ -39,7 +42,7 @@ export interface Action {
 
 export interface CommentAction {
   t: number;
-  role: Role | "reader" | "cgnat";
+  role: Who;
   side: Side | null;
   level: Level | null;
   actor: string;
@@ -146,7 +149,8 @@ export async function run(
         const endMs = profile.shifts ? startMs + profile.shifts.duration_s * 1000 : Infinity;
         tasks.push(
           (async () => {
-            await sleep(startMs + Math.random() * profile.window_s * 1000);
+            const start = profile.reaction_ms ? sample(profile.reaction_ms) : Math.random() * profile.window_s * 1000;
+            await sleep(startMs + start);
             const deadline = log.started_ms + endMs;
             if (browser) await browserOperative(ctx, actor, plan, deadline, browser);
             else await operative(ctx, actor, plan, deadline);
@@ -174,6 +178,29 @@ export async function run(
     );
   }
 
+  // Legitimni blizanac vremenske dimenzije: push, pa isti verni čitaoci na svakom postu.
+  const push = profile.audience.push;
+  if (push) {
+    const fans: Actor[] = Array.from({ length: push.readers }, (_, i) => {
+      const prefix = nets.take();
+      return { id: `push-${i}`, role: "push", side: null, level: null, ip: nets.host(prefix), net: `${prefix}.0/24`, ua: pick(UA_READERS) };
+    });
+    push.posts.forEach((post, k) =>
+      tasks.push(
+        (async () => {
+          await sleep((push.at_s + k * push.gap_s) * 1000);
+          await promote(target, post);
+          await Promise.all(
+            fans.map(async (f) => {
+              await sleep(sample(push.reaction_ms));
+              await readPushed(ctx, f, post, push.vote_p ?? 0.9);
+            }),
+          );
+        })(),
+      ),
+    );
+  }
+
   try {
     await Promise.all(tasks);
   } finally {
@@ -183,9 +210,31 @@ export async function run(
   return log;
 }
 
-/** Koliko traje kampanja (sve smene); publika dolazi tokom celog tog vremena. */
+/** Koliko traje kampanja (sve smene); publika dolazi tokom celog tog vremena, ako nije zadato. */
 function runSpan(p: Profile): number {
+  if (p.audience.span_s !== undefined) return p.audience.span_s;
   return p.shifts ? (p.shifts.count - 1) * p.shifts.duration_s + p.window_s : p.window_s;
+}
+
+/** Samo demo (`POST /admin/promote`): pravi portal sam javlja promociju kad je napravi. */
+async function promote(target: Target, post: string): Promise<void> {
+  const res = await fetch(`${target.portalUrl}/admin/promote`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ post, channel: "push" }),
+  });
+  if (!res.ok) throw new Error(`push za ${post}: HTTP ${res.status}`);
+}
+
+/** Verni čitalac posle push-a: pročita i glasa za komentar sa najvećim javnim zbirom. */
+async function readPushed(ctx: Ctx, a: Actor, post: string, voteP: number): Promise<void> {
+  const token = await view(ctx.target, a, post);
+  if (token) await browserEvent(ctx.target, a, { ...viewEvent(token, post), ref: null });
+  const readMs = sample(ctx.profile.audience.read_ms);
+  await sleep(readMs);
+  const res = await fetch(`${ctx.target.portalUrl}/api/comments?post=${encodeURIComponent(post)}`);
+  const here = (await res.json()) as (PortalComment & { score: number })[];
+  const top = here.reduce((best, c) => (c.score > best.score ? c : best), here[0]!);
+  if (token) await browserEvent(ctx.target, a, engageEvent(token, readMs, here.map((c) => c.id), top.id));
+  if (Math.random() < voteP) await vote(ctx.target, a, top, 1, token, ctx.log.actions);
 }
 
 /** Zadaci jednog poslušnika: glasovi i komentari, izmešani (`schedule`). */
@@ -285,7 +334,7 @@ async function paraphraseAll(texts: string[], paraphraser: Paraphraser, log: Run
 
 export interface Actor {
   id: string;
-  role: Role | "reader" | "cgnat";
+  role: Who;
   side: Side | null;
   level: Level | null;
   ip: string;

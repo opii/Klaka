@@ -59,7 +59,7 @@ Delovi su dostupni i pojedinačno (`TokenVerifier`, `parseVerdict`, `strongest`,
 
 | Gotovo | Sledi |
 | --- | --- |
-| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), naknadni shadow (`retro`), slanje događaja | `onModeration`, `onPost`, `onPromotion` (`sdk.md` §1) |
+| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), naknadni shadow (`retro`), `onPromotion`, slanje događaja | `onModeration`, `onPost` (`sdk.md` §1) |
 
 ```bash
 docker compose run --rm -w /work/sdk/node node npm test   # iz korena repoa

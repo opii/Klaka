@@ -466,6 +466,11 @@ mod tests {
             min_comments: 5,
             max_text_distance: 0.2,
             min_minhash: 0.5,
+            covote: Duration::from_secs(120),
+            min_jaccard: 0.5,
+            min_partners: 2,
+            min_cohort_nets: 5,
+            promotion: Duration::from_secs(600),
             ttl: Duration::from_secs(3600),
             retro: Duration::from_secs(600),
         }

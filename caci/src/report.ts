@@ -136,6 +136,7 @@ const ROLE_NAMES = { amplifier: "pojačivači", caci: "ćaci", diluter: "razvodn
 export function groupOf(a: Action | CommentAction): string {
   if (a.role === "reader") return "čitaoci";
   if (a.role === "cgnat") return "čitaoci iza CGNAT-a";
+  if (a.role === "push") return "verni čitaoci posle push-a";
   return `${a.side} ${ROLE_NAMES[a.role]} (nivo ${a.level})`;
 }
 

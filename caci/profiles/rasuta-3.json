@@ -1,0 +1,61 @@
+{
+  "name": "rasuta-3",
+  "level": 3,
+  "roles": {
+    "amplifier": 8,
+    "caci": 6
+  },
+  "votes": 3,
+  "targets": {
+    "push": [
+      "c1",
+      "c6",
+      "c11"
+    ],
+    "sink": [
+      "c2",
+      "c7",
+      "c9"
+    ]
+  },
+  "mirror": true,
+  "window_s": 0,
+  "reaction_ms": {
+    "median": 20000,
+    "sigma": 0.6
+  },
+  "prefixes": 14,
+  "delay_ms": {
+    "median": 4000,
+    "sigma": 0.4
+  },
+  "token_wait_ms": 2500,
+  "token_per_vote": true,
+  "dwell_ms": {
+    "median": 1500,
+    "sigma": 0.3
+  },
+  "audience": {
+    "readers": 60,
+    "cgnat": 20,
+    "span_s": 300,
+    "read_ms": {
+      "median": 6000,
+      "sigma": 0.6
+    },
+    "vote_p": 0.6,
+    "push": {
+      "posts": [
+        "p-1001",
+        "p-1002"
+      ],
+      "readers": 12,
+      "at_s": 90,
+      "gap_s": 100,
+      "reaction_ms": {
+        "median": 15000,
+        "sigma": 0.5
+      }
+    }
+  }
+}

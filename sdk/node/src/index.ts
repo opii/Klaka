@@ -5,7 +5,8 @@ export { parseVerdict, strongest, decide } from "./verdict.js";
 export type { Action, Decision } from "./verdict.js";
 export { Klaka } from "./klaka.js";
 export type {
-  ClientRequest, CommentInput, CommentResult, KlakaConfig, RetroAction, RetroBatch, VoteInput, VoteResult,
+  ClientRequest, CommentInput, CommentResult, KlakaConfig, PromotionChannel, RetroAction, RetroBatch, VoteInput,
+  VoteResult,
 } from "./klaka.js";
 export { MemoryStore } from "./store.js";
 export type { Store, StreamEntry } from "./store.js";

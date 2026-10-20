@@ -16,13 +16,15 @@
 //!   smeru, kroz više postova — mnogo češće nego organska publika ([`focused`]).
 //!
 //! Komentare ocenjuju detektori iz [`comments`]: nenapisani komentari (bihevioralna) i deljeni
-//! šabloni (tekstualna, kroz više postova).
+//! šabloni (tekstualna, kroz više postova). Klaku raspoređenu po mnogo prefiksa, ispod svih
+//! pragova po prefiksu, hvata graf usklađenih glasova iz [`coordinated`].
 //!
 //! Sama mreža nije dovoljna (verdicts.md §4: CGNAT deli /24 sa hiljadama ljudi); legitimni
 //! čitaoci iza istog prefiksa čitaju, klikću i glasaju raspršeno kao i svi ostali, pa ne ulaze
 //! u kohortu.
 
 pub mod comments;
+pub mod coordinated;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -58,6 +60,16 @@ pub struct Config {
     pub max_text_distance: f64,
     /// Deljeni šabloni: najmanja MinHash sličnost za kopiju.
     pub min_minhash: f64,
+    /// Usklađeni glasovi: najveći razmak dva glasa za isti cilj da bi bili „zajedno".
+    pub covote: Duration,
+    /// Usklađeni glasovi: najmanja Jaccard-ova sličnost skupova glasova dva prefiksa.
+    pub min_jaccard: f64,
+    /// Usklađeni glasovi: najmanje usklađenih partnera da prefiks ostane u kohorti (k-jezgro).
+    pub min_partners: i64,
+    /// Usklađeni glasovi: najmanje prefiksa u kohorti.
+    pub min_cohort_nets: i64,
+    /// Glasovi do ovoliko posle promocije posta (`promotion`) ne ulaze u usklađene glasove.
+    pub promotion: Duration,
     /// Koliko dugo presuda važi.
     pub ttl: Duration,
     /// Naknadni shadow: akcije prefiksa iz ovoliko vremena pre presude (verdicts.md §5).
@@ -579,6 +591,11 @@ mod tests {
             min_comments: 5,
             max_text_distance: 0.2,
             min_minhash: 0.5,
+            covote: Duration::from_secs(120),
+            min_jaccard: 0.5,
+            min_partners: 2,
+            min_cohort_nets: 5,
+            promotion: Duration::from_secs(600),
             ttl: Duration::from_secs(3600),
             retro: Duration::from_secs(600),
         }

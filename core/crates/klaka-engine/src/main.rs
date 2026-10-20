@@ -11,6 +11,10 @@
 //! - `KLAKA_ENGINE_MIN_COMMENTS`  detektori komentara: najmanje komentara iz prefiksa (5)
 //! - `KLAKA_ENGINE_MAX_TEXT_DISTANCE`, `KLAKA_ENGINE_MIN_MINHASH`
 //!   deljeni šabloni: kosinusna udaljenost za parafrazu, MinHash za kopiju (0.2, 0.5)
+//! - `KLAKA_ENGINE_COVOTE_S`, `KLAKA_ENGINE_MIN_JACCARD`, `KLAKA_ENGINE_MIN_PARTNERS`,
+//!   `KLAKA_ENGINE_MIN_COHORT_NETS`, `KLAKA_ENGINE_PROMOTION_S`
+//!   usklađeni glasovi: razmak, sličnost skupova, partnera, prefiksa, prozor promocije
+//!   (120, 0.5, 2, 5, 600)
 //! - `KLAKA_OLLAMA_URL`, `KLAKA_EMBED_MODEL`  embeddings komentara (bez njih: samo MinHash)
 //! - `KLAKA_RETENTION_DAYS`      koliko dugo se čuvaju embeddings, kao i događaji (30)
 //! - `KLAKA_ENGINE_TTL_S`        trajanje presude (3600)
@@ -25,6 +29,7 @@ use klaka_engine::comments::{
     SHARED_TEMPLATES, UNWRITTEN_COMMENTS, embed_pending, purge_embeddings, template_cohorts,
     unwritten_cohorts,
 };
+use klaka_engine::coordinated::{COORDINATED_VOTES, coordinated_cohorts};
 use klaka_engine::{
     Config, FOCUSED_VOTES, Finding, GHOST_VIEWS, NetVerdict, UNREAD_VOTES, detectors,
     focused_cohorts, ghost_cohorts, group_by_net, issue_net_shadow, unread_cohorts,
@@ -52,6 +57,11 @@ async fn main() {
         min_comments: env("KLAKA_ENGINE_MIN_COMMENTS", 5),
         max_text_distance: env("KLAKA_ENGINE_MAX_TEXT_DISTANCE", 0.2),
         min_minhash: env("KLAKA_ENGINE_MIN_MINHASH", 0.5),
+        covote: Duration::from_secs(env("KLAKA_ENGINE_COVOTE_S", 120)),
+        min_jaccard: env("KLAKA_ENGINE_MIN_JACCARD", 0.5),
+        min_partners: env("KLAKA_ENGINE_MIN_PARTNERS", 2),
+        min_cohort_nets: env("KLAKA_ENGINE_MIN_COHORT_NETS", 5),
+        promotion: Duration::from_secs(env("KLAKA_ENGINE_PROMOTION_S", 600)),
         ttl: Duration::from_secs(env("KLAKA_ENGINE_TTL_S", 3600)),
         retro: Duration::from_secs(env("KLAKA_ENGINE_RETRO_S", window_s)),
     };
@@ -77,7 +87,7 @@ async fn main() {
 
     eprintln!(
         "klaka-engine: detektori {GHOST_VIEWS}, {UNREAD_VOTES}, {FOCUSED_VOTES}, \
-         {UNWRITTEN_COMMENTS}, {SHARED_TEMPLATES}; svakih {}s, prozor {}s",
+         {COORDINATED_VOTES}, {UNWRITTEN_COMMENTS}, {SHARED_TEMPLATES}; svakih {}s, prozor {}s",
         interval.as_secs(),
         cfg.window.as_secs()
     );
@@ -120,6 +130,11 @@ async fn main() {
         collect(
             FOCUSED_VOTES,
             focused_cohorts(&pool, &cfg).await,
+            &mut findings,
+        );
+        collect(
+            COORDINATED_VOTES,
+            coordinated_cohorts(&pool, &cfg).await,
             &mut findings,
         );
         collect(

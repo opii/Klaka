@@ -56,6 +56,9 @@ export interface CommentInput {
 
 export type CommentResult = Omit<VoteResult, "repeat">;
 
+/** Kanal kojim je portal sam promovisao post (events.md §3, `promotion`). */
+export type PromotionChannel = "push" | "homepage" | "newsletter" | "social" | "other";
+
 /**
  * Akcija za naknadni shadow (verdicts.md §5): komentar se više ne prikazuje javno (autor ga i
  * dalje vidi), glas se oduzima od javnog zbira. Glas je određen parom (`vid`, `target`) — prikaz
@@ -142,6 +145,14 @@ export class Klaka {
       });
     }
     return { decision, vid, token: v.result, uses: state.uses, action: state.action };
+  }
+
+  /**
+   * Portal je sam promovisao post (push, naslovna…): legitiman blizanac vremenske dimenzije —
+   * nalet čitalaca posle promocije nije koordinacija (koncept §8). Samo događaj, bez odluke.
+   */
+  onPromotion(post: string, channel: PromotionChannel): void {
+    this.#cfg.events?.send({ type: "promotion", t: this.#now(), post, channel });
   }
 
   /**

@@ -42,9 +42,10 @@ Rezervisano za proof-of-work izazov. **U v1 SDK tretira
 
 - Presuda po `net` prefiksu MORA biti potkrepljena još bar jednom nezavisnom dimenzijom, ne
   samo mrežom: mobilni CGNAT deli /24 sa hiljadama legitimnih korisnika. Dovoljan je
-  bihevioralni ili infrastrukturni signal; ciljni (iste mete) ili tekstualni (ista formulacija)
-  samo ako se ponavlja na više postova i odstupa od organske publike (koncept §2a, pravilo
-  preseka).
+  bihevioralni ili infrastrukturni signal; ciljni (iste mete), tekstualni (ista formulacija) ili
+  vremenski (zajedno, u kratkom razmaku) samo ako se ponavlja na više postova i odstupa od
+  organske publike (koncept §2a, pravilo preseka). Vremenski signal ne važi u prozoru promocije
+  posta (`promotion`, koncept §8).
 - Nijedna presuda zasnovana samo na geografiji ili samo na vremenu (koncept §8).
 - Svaka upisana presuda ima zapis u audit-u (`klaka-api`, PostgreSQL) sa dokazima u tom trenutku.
 - Uz svaku presudu `shadow` engine upisuje i naknadni shadow (§5) za prozor u kome je video

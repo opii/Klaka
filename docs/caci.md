@@ -100,6 +100,9 @@ komentara i smer, kroz više postova, mnogo češće nego organska publika; kuca
 detektor deljenih šablona (ista formulacija kroz postove). Kampanja na jednom postu ostaje ispod
 praga — pravilo preseka traži više postova (koncept §2a). Nivo 4 (smene, pseudonimi, parafraze)
 hvataju isti detektori, sporije: smena ima manje poslušnika, a parafraze su manje slične od kopija.
+Klaku rasutu po mnogo prefiksa (svaki poslušnik svoj, par glasova — ispod svih pragova po
+prefiksu) hvata graf usklađenih glasova: isti ciljevi, isti smer, u razmaku ≤ 120 s, kroz više
+postova.
 
 ---
 
@@ -111,7 +114,9 @@ u istom vremenu i na iste postove:
 - **čitaoci** — dolaze sa različitih referera i prefiksa, čitaju, deo glasa, retko komentarišu;
 - **legitimni blizanci** (koncept §8) — nalet posle `promotion` događaja (push, naslovna),
   mobilizacija posle deljenja na društvenoj mreži, više čitalaca iza istog prefiksa
-  (kancelarija, CGNAT).
+  (kancelarija, CGNAT). Emulator pušta CGNAT (`audience.cgnat`) i push (`audience.push`: portal
+  javi promociju, isti verni čitaoci stižu za par sekundi i glasaju za najbolji komentar, na više
+  postova — vremenski i ciljno usklađeni kao klaka, samo legitimno).
 
 Blizanci su najvažniji deo publike: sistem koji ih kažnjava ne sme uživo.
 

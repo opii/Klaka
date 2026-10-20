@@ -26,8 +26,13 @@ export interface Profile {
   targets: { push: string[]; sink: string[]; dilute?: string[] };
   /** Pusti i obrnutu kampanju (strana B), istog profila i jačine. */
   mirror: boolean;
-  /** Prozor u kome poslušnici počinju (smena), sekunde. */
+  /** Prozor u kome poslušnici počinju (smena), sekunde — ravnomerno. */
   window_s: number;
+  /**
+   * Umesto ravnomernog početka: vreme reakcije na naređenje (poruka u grupi u trenutku 0) —
+   * talas, kao kod prave klake. Sa smenama važi od početka smene.
+   */
+  reaction_ms?: LogNormal;
   /** Koliko /24 prefiksa deli kohorta jedne strane. */
   prefixes: number;
   /** Pauza između akcija jednog poslušnika. */
@@ -64,6 +69,14 @@ export interface Profile {
     vote_p: number;
     /** Verovatnoća da čitalac napiše komentar na članak koji je pročitao. */
     comment_p?: number;
+    /** Koliko dugo čitaoci pristižu, sekunde (podrazumevano: koliko traje kampanja). */
+    span_s?: number;
+    /**
+     * Legitimni blizanac vremenske dimenzije (koncept §8): portal pošalje push za `posts`, redom,
+     * prvi u `at_s`, svaki sledeći `gap_s` kasnije; isti verni čitaoci (svaki iza svog prefiksa)
+     * stignu posle `reaction_ms`, pročitaju i glasaju za najbolji komentar.
+     */
+    push?: { posts: string[]; readers: number; at_s: number; gap_s: number; reaction_ms: LogNormal; vote_p?: number };
   };
 }
 
@@ -105,6 +118,15 @@ export function parseProfile(raw: unknown): Profile {
   if (a.comment_p !== undefined && !(a.comment_p >= 0 && a.comment_p <= 1)) fail("audience.comment_p");
   checkLogNormal(p.delay_ms, "delay_ms", fail);
   checkLogNormal(a.read_ms, "audience.read_ms", fail);
+  if (p.reaction_ms) checkLogNormal(p.reaction_ms, "reaction_ms", fail);
+  if (a.span_s !== undefined && !(a.span_s >= 0)) fail("audience.span_s");
+  if (a.push) {
+    const x = a.push;
+    if (!Array.isArray(x.posts) || x.posts.length === 0 || !(x.readers >= 1) || !(x.at_s >= 0) || !(x.gap_s >= 0)) {
+      fail("audience.push: { posts, readers ≥ 1, at_s, gap_s, reaction_ms }");
+    }
+    checkLogNormal(x.reaction_ms, "audience.push.reaction_ms", fail);
+  }
   return { ...p, mirror: p.mirror === true, token_per_vote: p.token_per_vote === true };
 }
 

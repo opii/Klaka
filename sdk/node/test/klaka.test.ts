@@ -146,3 +146,9 @@ test("naknadni shadow: akcije posle kursora, neispravni unosi preskočeni, kvar 
   assert.deepEqual(await setup(broken).klaka.retro(mid), { cursor: mid, actions: [] });
   assert.deepEqual(await setup().klaka.retro(mid), { cursor: mid, actions: [] }, "bez Valkey-ja");
 });
+
+test("promocija: samo događaj, sa vremenom servera", () => {
+  const { klaka, sent } = setup();
+  klaka.onPromotion(POST, "push");
+  assert.deepEqual(sent, [{ type: "promotion", t: NOW, post: POST, channel: "push" }]);
+});

@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
 use klaka_engine::comments::{EMBEDDING_DIM, embed_pending, template_cohorts, unwritten_cohorts};
+use klaka_engine::coordinated::coordinated_cohorts;
 use klaka_engine::{
     Config, GHOST_VIEWS, Issued, NetVerdict, focused_cohorts, ghost_cohorts, issue_net_shadow,
     net_key, retro_key, unread_cohorts,
@@ -26,6 +27,11 @@ fn cfg() -> Config {
         min_comments: 5,
         max_text_distance: 0.2,
         min_minhash: 0.5,
+        covote: Duration::from_secs(120),
+        min_jaccard: 0.5,
+        min_partners: 2,
+        min_cohort_nets: 5,
+        promotion: Duration::from_secs(600),
         ttl: Duration::from_secs(3600),
         retro: Duration::from_secs(600),
     }
@@ -605,6 +611,64 @@ async fn verdict_sends_counted_actions_of_the_prefix_to_retro() {
         .query_async::<()>(&mut valkey)
         .await
         .unwrap();
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn coordinated_votes_from_db_with_promotion() {
+    let Some((admin, pool, schema)) = schema("coordinated").await else {
+        return;
+    };
+    let store = PgStore(pool.clone());
+    let vote = |net: &str, post: &str, target: &str, t: i64| Row {
+        kind: "vote",
+        t,
+        vid: Some(format!("{net}-{target}")),
+        post: Some(post.to_owned()),
+        net: Some(net.to_owned()),
+        data: json!({"type": "vote", "target": target, "dir": 1, "decision": "count"}),
+    };
+    let mut rows = Vec::new();
+    for i in 0..6 {
+        // Klaka: 6 prefiksa, isti ciljevi na 2 posta, u roku od minuta.
+        let net = format!("198.18.{}.0/24", 60 + i);
+        rows.push(vote(&net, "p-1", "c1", 1_000_000 + i * 5_000));
+        rows.push(vote(&net, "p-2", "c6", 1_010_000 + i * 5_000));
+        // Verni čitaoci posle push-a za p-3 i p-4: isto usklađeni, ali u prozoru promocije.
+        let fan = format!("198.18.{}.0/24", 80 + i);
+        rows.push(vote(&fan, "p-3", "c9", 2_000_000 + i * 5_000));
+        rows.push(vote(&fan, "p-4", "c13", 2_100_000 + i * 5_000));
+    }
+    let promotion = |post: &str, t: i64| Row {
+        kind: "promotion",
+        t,
+        vid: None,
+        post: Some(post.to_owned()),
+        net: None,
+        data: json!({"type": "promotion", "post": post, "channel": "push"}),
+    };
+    store
+        .insert(Batch {
+            portal: "demo.local".into(),
+            source: Source::Server,
+            rows: [
+                rows,
+                vec![promotion("p-3", 1_990_000), promotion("p-4", 2_090_000)],
+            ]
+            .concat(),
+        })
+        .await
+        .unwrap();
+
+    let found = coordinated_cohorts(&pool, &cfg()).await.unwrap();
+    let nets: Vec<_> = found.iter().map(|m| m.net.as_str()).collect();
+    let klaka: Vec<String> = (0..6).map(|i| format!("198.18.{}.0/24", 60 + i)).collect();
+    assert_eq!(nets, klaka, "{found:?}");
+
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)

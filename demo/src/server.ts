@@ -168,6 +168,21 @@ function applyRetroAction(a: RetroAction): void {
   if (c) c.score -= v.dir;
 }
 
+/**
+ * Samo za demo: „portal je poslao push" za post — pravi portal javlja promociju kad je sam
+ * napravi (naslovna, push, newsletter). Emulator (caci/) ovako pušta legitimnog blizanca.
+ */
+async function promote(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readJson(req);
+  const post = POSTS.find((p) => p.id === body?.post);
+  const channel = body?.channel ?? "push";
+  if (!post || !["push", "homepage", "newsletter", "social", "other"].includes(channel as string)) {
+    return send(res, 400, "application/json", '{"ok":false}');
+  }
+  klaka?.onPromotion(post.id, channel as "push");
+  send(res, 200, "application/json", '{"ok":true}');
+}
+
 function article(req: IncomingMessage, res: ServerResponse, id: string): void {
   const post = POSTS.find((p) => p.id === id);
   if (!post) return send(res, 404, "text/plain", "nema");
@@ -212,6 +227,8 @@ const server = createServer((req, res) => {
           return send(res, 200, "application/json", JSON.stringify(votes));
         case "GET /admin/comments.json":
           return send(res, 200, "application/json", JSON.stringify(comments));
+        case "POST /admin/promote":
+          return promote(req, res);
         case "GET /healthz":
           return send(res, 200, "text/plain", "ok");
         default:

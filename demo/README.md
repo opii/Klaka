@@ -34,4 +34,5 @@ se oduzima od brojača. U `/admin` su označene sa „(naknadno)". U compose-u d
 okruženje**, da bi emulator klake (`caci/`) mogao da dodeli adrese.
 
 **Samo za demo:** `/admin`, `/admin/votes.json` i `/admin/comments.json` prikazuju razloge
-odluka. Pravi portal ih nikad ne izlaže. Presude u Valkey upisuje `klaka-engine`.
+odluka; `POST /admin/promote {"post","channel"}` glumi da je portal poslao push (događaj
+`promotion`, za legitimnog blizanca u emulatoru). Pravi portal ih nikad ne izlaže. Presude u Valkey upisuje `klaka-engine`.
