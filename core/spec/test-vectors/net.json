@@ -1,0 +1,30 @@
+{
+  "description": "Mrežni prefiks klijenta (core/spec/events.md §3, polje `net`): IPv4 → /24, IPv6 → /48, IPv4-mapirana IPv6 adresa → kao IPv4. Neispravan ulaz → null. IPv6 u kanonskom obliku po RFC 5952 (mala slova, bez vodećih nula, najduži niz nula sažet u ::).",
+  "cases": [
+    { "name": "ipv4", "input": "93.87.12.200", "expect": "93.87.12.0/24" },
+    { "name": "ipv4_private", "input": "10.0.0.1", "expect": "10.0.0.0/24" },
+    { "name": "ipv4_zero_octets", "input": "0.0.0.0", "expect": "0.0.0.0/24" },
+    { "name": "ipv4_max", "input": "255.255.255.255", "expect": "255.255.255.0/24" },
+    { "name": "ipv4_mapped", "input": "::ffff:93.87.12.200", "expect": "93.87.12.0/24" },
+    { "name": "ipv4_mapped_hex", "input": "::ffff:5d57:cc8", "expect": "93.87.12.0/24" },
+    { "name": "ipv4_mapped_uppercase", "input": "::FFFF:93.87.12.200", "expect": "93.87.12.0/24" },
+    { "name": "ipv6", "input": "2a02:8109:1234:5678::1", "expect": "2a02:8109:1234::/48" },
+    { "name": "ipv6_uppercase_full", "input": "2A02:8109:1234:5678:0:0:0:1", "expect": "2a02:8109:1234::/48" },
+    { "name": "ipv6_leading_zeros", "input": "2001:0db8:0000:0001:0000:0000:0000:0001", "expect": "2001:db8::/48" },
+    { "name": "ipv6_third_group_zero", "input": "2001:db8:0:1::", "expect": "2001:db8::/48" },
+    { "name": "ipv6_second_third_zero", "input": "2001::1", "expect": "2001::/48" },
+    { "name": "ipv6_loopback", "input": "::1", "expect": "::/48" },
+    { "name": "ipv6_all_groups", "input": "fd12:3456:789a:1:2:3:4:5", "expect": "fd12:3456:789a::/48" },
+    { "name": "ipv6_nat64_not_mapped", "input": "64:ff9b::93.87.12.200", "expect": "64:ff9b::/48" },
+    { "name": "invalid_empty", "input": "", "expect": null },
+    { "name": "invalid_text", "input": "nije-ip", "expect": null },
+    { "name": "invalid_ipv4_short", "input": "1.2.3", "expect": null },
+    { "name": "invalid_ipv4_long", "input": "1.2.3.4.5", "expect": null },
+    { "name": "invalid_ipv4_octet", "input": "1.2.3.256", "expect": null },
+    { "name": "invalid_ipv4_leading_zero", "input": "01.2.3.4", "expect": null },
+    { "name": "invalid_ipv6_zone", "input": "fe80::1%eth0", "expect": null },
+    { "name": "invalid_ipv6_double_compress", "input": "2001::1::2", "expect": null },
+    { "name": "invalid_with_port", "input": "93.87.12.200:443", "expect": null },
+    { "name": "invalid_whitespace", "input": " 93.87.12.200", "expect": null }
+  ]
+}
