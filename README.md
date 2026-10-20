@@ -1,4 +1,3 @@
-| [`caci/`](caci/) | emulator klake: poslušnici protiv demo portala, legitimna publika, izveštaj iz baze |
 # Klaka
 
 Detekcija koordinisanih napada (glasovi, komentari) na portalima — isključivo iz podataka
@@ -57,6 +56,7 @@ modeli): kopirati `.env.example` u `.env`.
 | [`ts/`](ts/) | klijentska biblioteka za browser (TypeScript) |
 | [`demo/`](demo/) | demo portal (Node, TypeScript): članak, komentari, glasanje — ceo lanac na http://localhost:18082 |
 | [`docs/`](docs/) | koncept, tech stack |
+| [`caci/`](caci/) | emulator klake: poslušnici protiv demo portala, legitimna publika, izveštaj iz baze |
 
 Svaki folder na nivou namene (ili tehnologije, gde ih ima više) je samostalan i kasnije
 postaje zaseban repo. Detalji: [`docs/tech_stack.md`](docs/tech_stack.md) §6.
