@@ -4,7 +4,7 @@
 | --- | --- |
 | `token.json` | provera tokena pregleda, [`../token.md`](../token.md) §4 — 34 slučaja |
 | `net.json` | mrežni prefiks klijenta (IPv4 /24, IPv6 /48, mapirane adrese), [`../events.md`](../events.md) §3 — 25 slučajeva |
-| `events.json` | pojedinačni događaji: šta collector prihvata i u kom obliku upisuje, [`../events.md`](../events.md) §2–§4 — 28 slučajeva |
+| `events.json` | pojedinačni događaji: šta collector prihvata i u kom obliku upisuje, [`../events.md`](../events.md) §2–§4 — 30 slučajeva |
 
 Format `token.json`: `config` (javni ključevi i pragovi za test), `defaults` (portal, post,
 `now_ms`, `uses`), i `cases[]` sa `input` (token + eventualne izmene podrazumevanih vrednosti)

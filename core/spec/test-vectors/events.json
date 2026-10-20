@@ -94,14 +94,26 @@
     {
       "name": "vote",
       "endpoint": "ingest",
-      "input": { "type": "vote", "t": 1792000005000, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 3, "decision": "count", "net": "93.87.12.0/24", "ua": "Mozilla/5.0", "cid": null, "target": "c-1", "target_author": "reader42", "dir": -1 },
-      "expect": { "type": "vote", "t": 1792000005000, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 3, "decision": "count", "net": "93.87.12.0/24", "ua": "Mozilla/5.0", "cid": null, "target": "c-1", "target_author": "reader42", "dir": -1 }
+      "input": { "type": "vote", "t": 1792000005000, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 3, "decision": "count", "net": "93.87.12.0/24", "ua": "Mozilla/5.0", "cid": null, "target": "c-1", "target_author": "reader42", "dir": -1, "repeat": false },
+      "expect": { "type": "vote", "t": 1792000005000, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 3, "decision": "count", "net": "93.87.12.0/24", "ua": "Mozilla/5.0", "cid": null, "target": "c-1", "target_author": "reader42", "dir": -1, "repeat": false }
+    },
+    {
+      "name": "vote_repeat",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 4, "decision": "shadow", "net": "93.87.12.0/24", "ua": "", "target": "c-1", "target_author": null, "dir": 1, "repeat": true },
+      "expect": { "type": "vote", "t": 1, "post": "p-1001", "vid": "AAECAwQFBgcICQoLDA0ODw", "token": "valid", "uses": 4, "decision": "shadow", "net": "93.87.12.0/24", "ua": "", "cid": null, "target": "c-1", "target_author": null, "dir": 1, "repeat": true }
+    },
+    {
+      "name": "vote_repeat_wrong_type",
+      "endpoint": "ingest",
+      "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "93.87.12.0/24", "ua": "", "target": "c-1", "target_author": null, "dir": 1, "repeat": "yes" },
+      "expect": null
     },
     {
       "name": "vote_without_token",
       "endpoint": "ingest",
       "input": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "2a02:8109:1234::/48", "ua": "", "target": "c-1", "target_author": null, "dir": 1 },
-      "expect": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "2a02:8109:1234::/48", "ua": "", "cid": null, "target": "c-1", "target_author": null, "dir": 1 }
+      "expect": { "type": "vote", "t": 1, "post": "p-1001", "vid": null, "token": "missing", "uses": null, "decision": "shadow", "net": "2a02:8109:1234::/48", "ua": "", "cid": null, "target": "c-1", "target_author": null, "dir": 1, "repeat": null }
     },
     {
       "name": "vote_full_ip_rejected",

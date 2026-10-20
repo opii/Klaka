@@ -118,6 +118,7 @@ Zajednička polja za `vote` i `comment`:
 | `target` | string | ID komentara (ili posta) na koji se glasa; isti ID kao u `data-klaka-comment` |
 | `target_author` | string \| null | pseudonim autora komentara na koji se glasa — za ciljnu dimenziju (koncept §2a): koordinisano guranje ili potiskivanje konkretnog komentatora |
 | `dir` | `1` \| `-1` | |
+| `repeat` | bool \| null | isti `vid` je već glasao za isti `target` (`sdk.md` §2a); `null` ako prikaz nije poznat ili Valkey nije bio dostupan |
 
 ### `comment`
 

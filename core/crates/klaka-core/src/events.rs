@@ -211,6 +211,8 @@ pub struct Vote {
     pub target: String,
     pub target_author: Option<String>,
     pub dir: Dir,
+    /// `sdk.md` §2a; `None` ako prikaz nije poznat ili Valkey nije bio dostupan.
+    pub repeat: Option<bool>,
 }
 
 /// `1` ili `-1`.

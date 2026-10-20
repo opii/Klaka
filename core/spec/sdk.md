@@ -24,9 +24,12 @@ verifier.onPromotion(post, channel)
 2. ako je token parsabilan (vid poznat):
        uses = INCR klaka:v1:<portal>:uses:<vid>  (Valkey; TTL = max_age_ms)
        ako uses > max_uses → token_result = overused             korak 10
+       samo za glas:
+         first = SET klaka:v1:<portal>:voted:<vid>:<target> 1 NX PX max_age_ms
+         repeat = not first                                        §2a
 3. action = najstroža presuda iz MGET ključeva                    verdicts.md §1
 4. decision =
-       "count"   ako token_result == valid i action == none
+       "count"   ako token_result == valid i action == none i repeat nije true
        "shadow"  inače
 5. pošalji događaj (vote/comment) asinhrono                       events.md §3
 6. vrati { decision } portalu
@@ -35,11 +38,21 @@ verifier.onPromotion(post, channel)
 Portal: `count` → uračunaj u javni brojač; `shadow` → sačuvaj, prikaži samo izvoru, ne računaj.
 Odgovor korisniku MORA biti isti u oba slučaja (spec README, princip 3).
 
+### 2a. Jedan glas po prikazu i cilju
+
+Jedan prikaz (`vid`) daje najviše **jedan uračunat glas po cilju**. Ponovljen glas istog `vid`-a
+na isti komentar ide u `shadow` (`repeat = true` u događaju), kao i svaki drugi: odgovor je isti.
+
+Bez ovog pravila jedan token važi za `max_uses` glasova, pa strpljiv napadač sa jednim
+prikazom pomera zbir za `max_uses` — izmereno emulatorom klake (`caci/`, profil `token-1`).
+Smer se ne računa: prvi glas (`1` ili `-1`) je jedini uračunat, promena mišljenja u istom
+prikazu nije podržana. `max_uses` i dalje ograničava ukupan broj akcija po prikazu.
+
 ### Otkazi — SDK nikad ne obara portal
 
 | Kvar | Ponašanje |
 | --- | --- |
-| Valkey nedostupan (korak 2 ili 3) | `uses = null`, `action = none` → odluka samo po tokenu (**fail-open** za presude) |
+| Valkey nedostupan (korak 2 ili 3) | `uses = null`, `repeat = null`, `action = none` → odluka samo po tokenu (**fail-open** za presude) |
 | collector nedostupan (korak 5) | događaj se odbacuje posle kratkog bafera; akcija se ne blokira |
 | greška u konfiguraciji (nema ključeva) | SDK se ne inicijalizuje — greška pri startu, ne pri zahtevu |
 
