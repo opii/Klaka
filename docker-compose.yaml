@@ -120,9 +120,14 @@ services:
       KLAKA_PORTAL: demo.local
       KLAKA_API_URL: http://klaka-api:8081
       KLAKA_API_PUBLIC_URL: http://localhost:${API_PORT:-18081}
+      KLAKA_COLLECTOR_URL: http://klaka-collector:8080
+      KLAKA_API_KEY: ${KLAKA_DEMO_API_KEY:-dev-api-key}
+      # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
+      KLAKA_CLIENT_IP_HEADER: x-forwarded-for
     ports: ["127.0.0.1:${DEMO_PORT:-18082}:3000"]
     depends_on:
       klaka-api: { condition: service_started }
+      klaka-collector: { condition: service_started }
 
   # --- razvojni alati (docker compose run --rm <alat> …) --------------------
 

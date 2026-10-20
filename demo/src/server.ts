@@ -7,11 +7,15 @@
 //   KLAKA_API_PUBLIC_URL   klaka-api iz browsera, za /v1/view      (= KLAKA_API_URL)
 //   KLAKA_SNIPPET          putanja do klaka.min.js                 (../ts/dist/klaka.min.js)
 //   KLAKA_MIN_AGE_MS, KLAKA_MAX_AGE_MS, KLAKA_MAX_USES               (2000, 7200000, 50)
+//   KLAKA_COLLECTOR_URL, KLAKA_API_KEY   slanje događaja; bez njih se događaji ne šalju
+//   KLAKA_CLIENT_IP_HEADER   zaglavlje sa IP-jem klijenta iza pouzdanog proxy-ja (npr.
+//                            x-forwarded-for, važi poslednja vrednost). SAMO za test okruženje:
+//                            ovako emulator ćacija (caci/) dodeljuje adrese.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 
-import { TokenVerifier, decide, type Policy } from "@klaka/sdk-node";
+import { EventSender, TokenVerifier, decide, netPrefix, truncateUa, type Policy } from "@klaka/sdk-node";
 
 import { adminPage, articlePage, type Comment, type VoteLog } from "./page.js";
 
@@ -27,6 +31,12 @@ const POLICY: Policy = {
   maxUses: Number(env.KLAKA_MAX_USES ?? 50),
 };
 const MAX_BODY = 4 * 1024;
+const IP_HEADER = env.KLAKA_CLIENT_IP_HEADER?.toLowerCase() || null;
+
+const events =
+  env.KLAKA_COLLECTOR_URL && env.KLAKA_API_KEY
+    ? new EventSender({ portal: PORTAL, collectorUrl: env.KLAKA_COLLECTOR_URL, apiKey: env.KLAKA_API_KEY })
+    : null;
 
 const snippet = readSnippet(env.KLAKA_SNIPPET ?? "../ts/dist/klaka.min.js");
 
@@ -81,7 +91,17 @@ async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
   const decision = decide(v.result, "none"); // presude iz Valkey-ja: sledeći korak
   if (decision === "count") comment.score += dir;
-  votes.push({ t: now, comment: comment.id, dir, vid: v.payload?.vid ?? null, token: v.result, uses: n, decision });
+  const vid = v.payload?.vid ?? null;
+  votes.push({ t: now, comment: comment.id, dir, vid, token: v.result, uses: n, decision });
+
+  // Pun IP ostaje ovde; collector dobija samo prefiks (events.md §3).
+  const net = netPrefix(clientIp(req));
+  if (events && net) {
+    events.send({
+      type: "vote", t: now, post: POST, vid, token: v.result, uses: n, decision, net,
+      ua: truncateUa(req.headers["user-agent"]), target: comment.id, target_author: comment.author, dir,
+    });
+  }
 
   // Isti odgovor za count i shadow (spec README, princip 3).
   send(res, 200, "application/json", '{"ok":true}');
@@ -118,6 +138,14 @@ const server = createServer((req, res) => {
     });
 });
 
+/** IP klijenta: iz zaglavlja pouzdanog proxy-ja (poslednja vrednost) ako je podešeno, inače TCP veza. */
+function clientIp(req: IncomingMessage): string {
+  const raw = IP_HEADER ? req.headers[IP_HEADER] : undefined;
+  const value = Array.isArray(raw) ? raw.at(-1) : raw;
+  const last = value?.split(",").at(-1)?.trim();
+  return last || req.socket.remoteAddress || "";
+}
+
 function send(res: ServerResponse, status: number, type: string, body: string): void {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store" });
   res.end(body);
@@ -150,10 +178,16 @@ function readSnippet(path: string): string {
 
 await refreshKeys();
 setInterval(refreshKeys, 15_000).unref();
-server.listen(PORT, () => console.log(`demo portal na :${PORT} (klaka-api: ${API}, browser: ${API_PUBLIC})`));
+events?.send({
+  type: "post", t: Date.now(), post: POST, rev: 1, url: `https://${PORTAL}/`,
+  title: "Park kod reke dobija novu stazu i klupe do proleća", section: "grad",
+});
+server.listen(PORT, () =>
+  console.log(`demo portal na :${PORT} (klaka-api: ${API}, browser: ${API_PUBLIC}, događaji: ${events ? "da" : "ne"})`),
+);
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
   process.on(sig, () => {
-    server.close(() => process.exit(0));
+    server.close(() => void (events?.flush() ?? Promise.resolve()).finally(() => process.exit(0)));
     server.closeAllConnections();
   });
 }

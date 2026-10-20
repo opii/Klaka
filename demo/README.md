@@ -16,6 +16,11 @@ docker compose run --rm e2e           # 5 testova u pravom browseru (Chromium)
 | lažan token | `bad_signature` → shadow, isti odgovor |
 | token drugog posta | `wrong_post` → shadow |
 
+Svaki glas ide i u `klaka-collector` kao `vote` događaj (sa prefiksom mreže, ne punim IP-jem),
+u pozadini preko `EventSender`-a iz `@klaka/sdk-node`; pri startu demo javlja i `post`.
+U compose-u demo veruje zaglavlju `X-Forwarded-For` — **samo za test okruženje**, da bi emulator
+klake (`caci/`) mogao da dodeli adrese.
+
 **Samo za demo:** `/admin` i `/admin/votes.json` prikazuju razloge odluka. Pravi portal ih
 nikad ne izlaže. Brojač upotreba je u memoriji (po spec-u ide u Valkey), presude iz Valkey-ja
 još ne postoje (akcija je uvek `none`).
