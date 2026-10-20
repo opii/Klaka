@@ -1,16 +1,20 @@
 //! Izdavanje tokena pregleda (`spec/token.md` §5) i objava javnih ključeva.
 
+pub mod issued;
+
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::extract::{DefaultBodyLimit, State};
-use axum::http::{Method, StatusCode, header};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
+use axum::http::{HeaderMap, HeaderName, Method, StatusCode, header};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
+use klaka_core::net;
 use klaka_core::token::{Payload, issue};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
@@ -23,6 +27,11 @@ pub struct Config {
     pub signing_key: SigningKey,
     /// Portali za koje se izdaju tokeni. *(PoC: post se prihvata bilo koji.)*
     pub portals: HashSet<String>,
+    /// Zaglavlje u koje pouzdani proxy upisuje IP klijenta (kao u collector-u). Bez njega:
+    /// adresa TCP veze.
+    pub client_ip_header: Option<HeaderName>,
+    /// Beleženje izdatih prikaza; bez njega se ne beleže.
+    pub issued: Option<issued::IssuedLog>,
 }
 
 pub fn app(cfg: Config) -> Router {
@@ -58,6 +67,8 @@ struct ViewResponse {
 /// preflight (isto kao za `/v1/events`, `spec/events.md` §1).
 async fn view(
     State(cfg): State<Arc<Config>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     body: String,
 ) -> Result<Json<ViewResponse>, StatusCode> {
     let req: ViewRequest = serde_json::from_str(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -76,6 +87,25 @@ async fn view(
         iat: now_ms(),
     };
     let token = issue(&cfg.signing_key, &cfg.kid, &payload);
+    if let Some(log) = &cfg.issued {
+        // Pun IP se ne beleži: samo prefiks (spec/events.md §4).
+        let ip = match &cfg.client_ip_header {
+            None => Some(peer.ip()),
+            Some(h) => headers
+                .get_all(h)
+                .iter()
+                .next_back()
+                .and_then(|v| v.to_str().ok())
+                .and_then(net::last_forwarded),
+        };
+        log.record(
+            &payload.portal,
+            &vid,
+            &payload.post,
+            payload.iat,
+            ip.map(net::prefix),
+        );
+    }
     Ok(Json(ViewResponse { token, vid }))
 }
 

@@ -27,3 +27,9 @@ fn v4(a: Ipv4Addr) -> String {
     let [a, b, c, _] = a.octets();
     format!("{a}.{b}.{c}.0/24")
 }
+
+/// IP klijenta iz zaglavlja pouzdanog proxy-ja (`X-Forwarded-For` i sl.): **poslednja** vrednost,
+/// jer nju dopisuje naš proxy; ranije je mogao da upiše bilo ko.
+pub fn last_forwarded(value: &str) -> Option<IpAddr> {
+    value.rsplit(',').next()?.trim().parse().ok()
+}

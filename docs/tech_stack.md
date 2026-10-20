@@ -35,6 +35,7 @@ Python se ne koristi u našem sistemu.
 | Crate | Tip | Uloga | Ključni crate-ovi |
 | --- | --- | --- | --- |
 | `klaka-core` | lib | šema događaja, format tokena (Ed25519), IP → /24, ASN lookup | `serde`, `ed25519-dalek` |
+| `klaka-db` | lib | migracije, tabela `events` (particije po danu), upis — zajedničko za collector i api | `sqlx` |
 | `klaka-collector` | bin | prima događaje iz browsera i SDK-ova, upisuje u PostgreSQL | `axum`, `tokio`, `sqlx` |
 | `klaka-engine` | bin | graf kohorte, MinHash/LSH, change-point, smene, presude | `petgraph`; Louvain i Serrano backbone pišemo sami |
 | `klaka-llm` | lib | `trait LlmProvider` + `trait Embedder`; podrazumevano Ollama (lokalno, besplatno), opciono Claude (Anthropic API / Vertex AI); ruter po klasi privatnosti — vidi [`llm.md`](llm.md) | `reqwest`, `serde_json` |
@@ -144,7 +145,7 @@ i kasnije postaje zaseban git repo.
 ```
 core/                    naš sistem, Rust            → repo klaka-core
   Cargo.toml, rust-toolchain.toml
-  crates/                klaka-core, klaka-collector, klaka-engine, klaka-llm, klaka-api
+  crates/                klaka-core, klaka-db, klaka-collector, klaka-engine, klaka-llm, klaka-api
   spec/                  protokol (token, šema događaja, presude) + test-vectors/
   deploy/                docker compose za self-hosted
 sdk/                     SDK-ovi za backend portala

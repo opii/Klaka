@@ -1,23 +1,77 @@
 //! `POST /v1/view` i `GET /v1/keys` kroz ceo router, bez mreže.
 
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
+use axum::extract::connect_info::MockConnectInfo;
+use axum::http::{HeaderName, Request, StatusCode, header};
 use ed25519_dalek::SigningKey;
 use http_body_util::BodyExt;
+use klaka_api::issued::IssuedLog;
 use klaka_api::{Config, app};
 use klaka_core::token::{Policy, TokenResult, Verifier, verifying_key_from_b64u};
+use klaka_db::{Batch, Source, Store};
 use serde_json::Value;
 use tower::ServiceExt;
 
 fn test_app() -> Router {
+    app_with(None)
+}
+
+fn app_with(issued: Option<IssuedLog>) -> Router {
+    let peer: SocketAddr = "10.0.0.1:50000".parse().unwrap();
     app(Config {
         kid: "dev-1".into(),
         signing_key: SigningKey::from_bytes(&[7u8; 32]),
         portals: HashSet::from(["demo.local".to_owned()]),
+        client_ip_header: Some(HeaderName::from_static("x-forwarded-for")),
+        issued,
     })
+    .layer(MockConnectInfo(peer))
+}
+
+#[derive(Clone, Default)]
+struct MemStore(Arc<Mutex<Vec<Batch>>>);
+
+impl Store for MemStore {
+    async fn insert(&self, batch: Batch) -> Result<(), sqlx::Error> {
+        self.0.lock().unwrap().push(batch);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn issued_view_is_recorded_with_prefix_only() {
+    let store = MemStore::default();
+    let req = Request::post("/v1/view")
+        .header("x-forwarded-for", "1.2.3.4, 198.18.7.42")
+        .body(Body::from(r#"{"portal":"demo.local","post":"p-1001"}"#))
+        .unwrap();
+    let (status, view) = call(app_with(Some(IssuedLog::spawn(store.clone()))), req).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Upis je u pozadini, u serijama.
+    for _ in 0..40 {
+        if !store.0.lock().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let batches = store.0.lock().unwrap();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(
+        (batches[0].portal.as_str(), batches[0].source),
+        ("demo.local", Source::Api)
+    );
+    let row = &batches[0].rows[0];
+    assert_eq!(row.kind, "issued");
+    assert_eq!(row.vid.as_deref(), view["vid"].as_str());
+    assert_eq!(row.post.as_deref(), Some("p-1001"));
+    assert_eq!(row.net.as_deref(), Some("198.18.7.0/24"));
+    assert!(!row.data.to_string().contains("198.18.7.42"));
 }
 
 async fn call(app: Router, req: Request<Body>) -> (StatusCode, Value) {

@@ -1,16 +1,24 @@
 //! Izdavanje tokena pregleda, upravljanje presudama, UI recenzenta (htmx + askama).
 //!
 //! Konfiguracija iz okruženja:
-//! - `KLAKA_API_ADDR`      adresa (podrazumevano `0.0.0.0:8081`)
-//! - `KLAKA_PORTALS`       portali, odvojeni zarezom (podrazumevano `demo.local`)
-//! - `KLAKA_SIGNING_KID`   ID ključa (podrazumevano `dev-1`)
-//! - `KLAKA_SIGNING_SEED`  Ed25519 seed, base64url 32 bajta; bez njega privremeni ključ
+//! - `KLAKA_API_ADDR`          adresa (podrazumevano `0.0.0.0:8081`)
+//! - `KLAKA_PORTALS`           portali, odvojeni zarezom (podrazumevano `demo.local`)
+//! - `KLAKA_SIGNING_KID`       ID ključa (podrazumevano `dev-1`)
+//! - `KLAKA_SIGNING_SEED`      Ed25519 seed, base64url 32 bajta; bez njega privremeni ključ
+//! - `KLAKA_POSTGRES_URL`      beleženje izdatih prikaza; bez njega se ne beleže
+//! - `KLAKA_CLIENT_IP_HEADER`  zaglavlje sa IP-jem klijenta iza pouzdanog proxy-ja
 
+use std::net::SocketAddr;
+
+use axum::http::HeaderName;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
+use klaka_api::issued::IssuedLog;
 use klaka_api::{Config, app};
 use klaka_core::token::valid_kid;
+use klaka_db::{MIGRATOR, PgStore};
+use sqlx::postgres::PgPoolOptions;
 
 #[tokio::main]
 async fn main() {
@@ -31,15 +39,41 @@ async fn main() {
         kid,
         signing_key: signing_key(),
         portals,
+        client_ip_header: std::env::var("KLAKA_CLIENT_IP_HEADER")
+            .ok()
+            .filter(|h| !h.trim().is_empty())
+            .map(|h| {
+                HeaderName::try_from(h.trim())
+                    .unwrap_or_else(|_| fail("KLAKA_CLIENT_IP_HEADER nije ispravno ime zaglavlja"))
+            }),
+        issued: issued_log().await,
     };
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .unwrap_or_else(|e| fail(&format!("ne mogu da slušam na {addr}: {e}")));
     eprintln!("klaka-api sluša na {addr}");
-    axum::serve(listener, app(cfg))
-        .with_graceful_shutdown(shutdown())
-        .await
-        .unwrap_or_else(|e| fail(&format!("server: {e}")));
+    axum::serve(
+        listener,
+        app(cfg).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await
+    .unwrap_or_else(|e| fail(&format!("server: {e}")));
+}
+
+/// Baza nije uslov za izdavanje tokena: ako nije dostupna pri startu, prikazi se ne beleže dok
+/// ne proradi (pool se povezuje lenjo), a token se izdaje i dalje.
+async fn issued_log() -> Option<IssuedLog> {
+    let url = std::env::var("KLAKA_POSTGRES_URL")
+        .ok()
+        .filter(|u| !u.is_empty())?;
+    let pool = PgPoolOptions::new()
+        .connect_lazy(&url)
+        .unwrap_or_else(|e| fail(&format!("KLAKA_POSTGRES_URL: {e}")));
+    if let Err(e) = MIGRATOR.run(&pool).await {
+        eprintln!("UPOZORENJE: migracije nisu izvršene ({e}); beleženje prikaza možda ne radi");
+    }
+    Some(IssuedLog::spawn(PgStore(pool)))
 }
 
 fn signing_key() -> SigningKey {

@@ -2,9 +2,9 @@
 //! svoju šemu, koja se briše na kraju.
 //!
 //! docker compose up -d --wait postgres
-//! docker compose run --rm -e KLAKA_TEST_POSTGRES_URL=postgres://klaka:klaka-dev@postgres:5432/klaka rust cargo test -p klaka-collector
+//! docker compose run --rm -e KLAKA_TEST_POSTGRES_URL=postgres://klaka:klaka-dev@postgres:5432/klaka rust cargo test -p klaka-db
 
-use klaka_collector::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
+use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
 use serde_json::json;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};

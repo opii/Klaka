@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 klaka-core = { path = "crates/klaka-core" }
+klaka-db = { path = "crates/klaka-db" }
 klaka-llm = { path = "crates/klaka-llm" }
 base64 = "0.22"
 ed25519-dalek = "2"

@@ -90,6 +90,8 @@ services:
       KLAKA_PORTALS: ${KLAKA_PORTALS:-demo.local}
       KLAKA_API_KEYS: ${KLAKA_API_KEYS:-demo.local=dev-api-key}
       KLAKA_RETENTION_DAYS: ${KLAKA_RETENTION_DAYS:-30}
+      # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
+      KLAKA_CLIENT_IP_HEADER: x-forwarded-for
 
   klaka-api:
     <<: *core
@@ -100,6 +102,8 @@ services:
       KLAKA_PORTALS: ${KLAKA_PORTALS:-demo.local}
       KLAKA_SIGNING_KID: ${KLAKA_SIGNING_KID:-dev-1}
       KLAKA_SIGNING_SEED: ${KLAKA_SIGNING_SEED:-}
+      # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
+      KLAKA_CLIENT_IP_HEADER: x-forwarded-for
 
   klaka-engine:
     <<: *core
