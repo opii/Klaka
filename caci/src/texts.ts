@@ -111,7 +111,11 @@ export function ollama(url: string, model: string): Writer & { check(): Promise<
   };
 }
 
-/** Komentari iz odgovora sa po jednim u redu: bez numeracije, crtica i navodnika, bez ponavljanja. */
+/**
+ * Komentari iz odgovora sa po jednim u redu: bez numeracije, crtica i navodnika, bez ponavljanja.
+ * Red koji se završava dvotačkom je uvod modela („Evo šest komentara čitalaca ispod članka:"), ne
+ * komentar — ponavlja se iz izvođenja u izvođenje, pa bi publici pravio lažne šablone.
+ */
 export function lines(r: { response?: string }): string[] {
   const out: string[] = [];
   for (const raw of (r.response ?? "").split("\n")) {
@@ -120,6 +124,7 @@ export function lines(r: { response?: string }): string[] {
       .replace(/^(\d+[.)]|[-*•])\s*/, "")
       .replace(/^["„“”«»']+|["„“”«»']+$/g, "")
       .trim();
+    if (line.endsWith(":")) continue;
     if (line.length >= 5 && line.length <= 300 && !out.includes(line)) out.push(line);
   }
   return out;

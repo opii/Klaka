@@ -4,8 +4,8 @@
 //!   formi stranice — za prikaz nema `compose`, ili je tekst stigao bez ijednog tastera
 //!   (nalepljen ili upisan skriptom); potpis operatera iz `events.md` §2;
 //! - **deljeni šabloni** (`shared-templates`), tekstualna: komentari prefiksa imaju blizanca
-//!   iste formulacije — kopiju (MinHash) ili parafrazu (embeddings, `docs/llm.md` §5a) — mnogo
-//!   češće nego organska publika, kroz više postova.
+//!   iste formulacije na drugom postu — kopiju (MinHash) ili parafrazu (embeddings,
+//!   `docs/llm.md` §5a) — mnogo češće nego organska publika, kroz više postova.
 //!
 //! Sadržaj se ne ocenjuje: ni stav, ni tema, ni ton — samo da li se ista formulacija ponavlja.
 
@@ -195,26 +195,53 @@ pub async fn comment_texts(pool: &PgPool, cfg: &Config) -> Result<Vec<CommentTex
     .await
 }
 
-/// Parovi komentara (portal, a, b) čiji su embeddings bliži od `max_text_distance` (kosinus).
+/// Koliko najbližih suseda (kNN) se traži za svaki komentar: za „ima blizanca" je dovoljan
+/// jedan, a HNSW ionako obiđe `ef_search` (40) kandidata, pa par više ne košta.
+const NEIGHBORS: i64 = 5;
+
+/// Parovi komentara (portal, a, b) čiji su embeddings bliži od `max_text_distance` (kosinus):
+/// za svaki komentar `a` iz prozora `NEIGHBORS` najbližih `b` sa drugih postova iz poslednjih
+/// `template_lookback` (docs/llm.md §5a: klaka iste šablone koristi danima, kroz više članaka)
+/// preko HNSW indeksa (kNN), ne svaki par.
+/// Indeks je približan — retko promaši najbližeg suseda. Kad bi sused bio samo iz prozora,
+/// planer bi s pravom izabrao indeks po vremenu i sortiranje — opet kvadratno u prozoru.
 pub async fn paraphrase_pairs(
     pool: &PgPool,
     cfg: &Config,
     model: &str,
 ) -> Result<Vec<(String, String, String)>, sqlx::Error> {
-    sqlx::query_as(
+    let mut tx = pool.begin().await?;
+    // pgvector ≥ 0.8: HNSW nastavlja pretragu kad filter (portal, model, prozor) odbaci
+    // kandidate iz indeksa — inače bi kNN nad celom retencijom vratio skoro samo stare komentare.
+    sqlx::query("SET LOCAL hnsw.iterative_scan = relaxed_order")
+        .execute(&mut *tx)
+        .await?;
+    let pairs = sqlx::query_as(
         "WITH e AS (
-             SELECT portal, comment, emb FROM comment_embedding
+             SELECT portal, comment, post, emb FROM comment_embedding
              WHERE model = $2 AND t > now() - make_interval(secs => $1)
          )
-         SELECT a.portal, a.comment, b.comment
-         FROM e a JOIN e b ON a.portal = b.portal AND a.comment < b.comment
-         WHERE (a.emb <=> b.emb) <= $3",
+         SELECT a.portal, a.comment, n.comment
+         FROM e a
+         CROSS JOIN LATERAL (
+             SELECT b.comment, b.emb <=> a.emb AS d
+             FROM comment_embedding b
+             WHERE b.portal = a.portal AND b.model = $2 AND b.post <> a.post
+               AND b.t > now() - make_interval(secs => $5)
+             ORDER BY b.emb <=> a.emb
+             LIMIT $4
+         ) n
+         WHERE n.d <= $3",
     )
     .bind(cfg.window.as_secs_f64())
     .bind(model)
     .bind(cfg.max_text_distance)
-    .fetch_all(pool)
-    .await
+    .bind(NEIGHBORS)
+    .bind(cfg.template_lookback.max(cfg.window).as_secs_f64())
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(pairs)
 }
 
 pub async fn template_cohorts(
@@ -230,15 +257,85 @@ pub async fn template_cohorts(
     Ok(templates(&texts, &pairs, cfg))
 }
 
+/// MinHash LSH: 16 traka po 4 reda potpisa. Par sa Jaccard-ovom sličnošću s deli bar jednu
+/// traku (postaje kandidat) sa verovatnoćom 1 − (1 − s⁴)¹⁶: 0,64 za 0,5, 0,99 za 0,7, 0,002 za
+/// 0,1 — kopije uvek, nepovezani tekstovi skoro nikad. Kandidat se proverava celim potpisom.
+const BANDS: usize = 16;
+const ROWS: usize = MINHASH_K / BANDS;
+/// U kofi se komentar proverava sa najviše ovoliko drugih: dovoljan je jedan blizanac, a kofa
+/// sa hiljadu istih kopija tako ne pravi milion poređenja.
+const MAX_CHECKS: usize = 8;
+
+/// Koji komentari imaju kopiju (MinHash ≥ `min`) na drugom postu — preko LSH kofa, ne
+/// poređenjem svakog para: posao raste linearno sa brojem komentara.
+fn copies(comments: &[CommentText], sigs: &[[u64; MINHASH_K]], min: f64) -> Vec<bool> {
+    let mut buckets: HashMap<(&str, usize, u64), Vec<usize>> = HashMap::new();
+    for (i, sig) in sigs.iter().enumerate() {
+        for band in 0..BANDS {
+            let rows = &sig[band * ROWS..(band + 1) * ROWS];
+            let key = rows.iter().fold(band as u64, |h, &r| splitmix64(h ^ r));
+            buckets
+                .entry((&comments[i].portal, band, key))
+                .or_default()
+                .push(i);
+        }
+    }
+    let mut copy = vec![false; comments.len()];
+    for list in buckets.values().filter(|l| l.len() > 1) {
+        // Kofa po postovima, do `MAX_CHECKS` predstavnika po postu. Kandidati za i su
+        // predstavnici drugih postova, pa se preskače najviše jedna grupa (i-ov post): i kofa sa
+        // hiljadama kopija na jednom postu i jednom na drugom ostaje linearna.
+        let mut posts: Vec<(&str, Vec<usize>)> = Vec::new();
+        let mut at: HashMap<&str, usize> = HashMap::new();
+        for &i in list {
+            let post = comments[i].post.as_str();
+            let k = *at.entry(post).or_insert_with(|| {
+                posts.push((post, Vec::new()));
+                posts.len() - 1
+            });
+            if posts[k].1.len() < MAX_CHECKS {
+                posts[k].1.push(i);
+            }
+        }
+        if posts.len() < 2 {
+            continue;
+        }
+        for &i in list {
+            if copy[i] {
+                continue;
+            }
+            let others = posts
+                .iter()
+                .filter(|&&(post, _)| post != comments[i].post)
+                .flat_map(|(_, reps)| reps.iter().copied());
+            for j in others.take(MAX_CHECKS) {
+                if minhash_similarity(&sigs[i], &sigs[j]) >= min {
+                    copy[i] = true;
+                    copy[j] = true;
+                    break;
+                }
+            }
+        }
+    }
+    copy
+}
+
 /// Težina prethodne pretpostavke u organskom udelu šablonskih komentara, u „prefiksima": dok
 /// ostalih prefiksa ima malo, mera ne pada na nulu (kao `PRIOR_NETS` za usmerene glasove).
 const PRIOR_NETS: f64 = 1.0;
-const PRIOR_SHARE: f64 = 0.5;
+/// Pretpostavljeni organski udeo, na gornjoj granici izmerenog (0,01–0,10 u emulatoru). Bez
+/// pojedinaca u prozoru (noću, mali portal) organski udeo je ceo prior: sa 0,5 lift ne bi mogao
+/// preći 2, ispod `min_lift`; sa 0,1 prolazi prefiks sa 5 od 5 šablonskih (p = 1e-5), a sa 4 od
+/// 5 ne.
+const PRIOR_SHARE: f64 = 0.1;
 
 /// Šablonski komentari po prefiksu, upoređeni sa organskom publikom.
 ///
-/// Komentar je šablonski ako ima blizanca sa drugog prikaza: MinHash sličnost ≥ `min_minhash`
-/// (kopija i sitne izmene) ili par iz `paraphrases` (embeddings bliži od praga). Organski udeo
+/// Komentar je šablonski ako ima blizanca na drugom postu: MinHash sličnost ≥ `min_minhash`
+/// u prozoru (kopija i sitne izmene) ili par iz `paraphrases` (embeddings bliži od praga, sused
+/// iz poslednjih `template_lookback`). Blizanac na istom postu se ne broji (koncept §8):
+/// čitaoci istog članka pišu o istoj temi, a citat iz teksta je kopija. Drugi post je ujedno i
+/// drugi prikaz (prikaz je jedno učitavanje jednog posta). Organski udeo
 /// je prosek udela šablonskih po pojedincima — prefiksima sa manje od `min_comments` komentara,
 /// svaki jedan glas, kao kod usmerenih glasova; i ovde presuda traži veličinu efekta i
 /// značajnost, na više postova.
@@ -253,31 +350,20 @@ pub fn templates(
         .enumerate()
         .map(|(i, c)| ((c.portal.as_str(), c.comment.as_str()), i))
         .collect();
-    let other_view = |i: usize, j: usize| {
-        let (a, b) = (&comments[i], &comments[j]);
-        a.portal == b.portal && (a.vid.is_none() || a.vid != b.vid)
-    };
-
-    let mut copy = vec![false; comments.len()];
+    let copy = copies(comments, &sigs, cfg.min_minhash);
     let mut templated = vec![false; comments.len()];
-    for i in 0..comments.len() {
-        for j in i + 1..comments.len() {
-            if other_view(i, j) && minhash_similarity(&sigs[i], &sigs[j]) >= cfg.min_minhash {
-                copy[i] = true;
-                copy[j] = true;
-            }
-        }
-    }
     for (portal, a, b) in paraphrases {
-        let (Some(&i), Some(&j)) = (
-            index.get(&(portal.as_str(), a.as_str())),
-            index.get(&(portal.as_str(), b.as_str())),
-        ) else {
+        let Some(&i) = index.get(&(portal.as_str(), a.as_str())) else {
             continue;
         };
-        if other_view(i, j) {
-            templated[i] = true;
-            templated[j] = true;
+        match index.get(&(portal.as_str(), b.as_str())) {
+            Some(&j) if comments[i].post != comments[j].post => {
+                templated[i] = true;
+                templated[j] = true;
+            }
+            Some(_) => {}
+            // Blizanac stariji od prozora (`paraphrase_pairs` traži samo druge postove).
+            None => templated[i] = true,
         }
     }
 
@@ -471,6 +557,7 @@ mod tests {
             min_partners: 2,
             min_cohort_nets: 5,
             promotion: Duration::from_secs(600),
+            template_lookback: Duration::from_secs(7 * 24 * 3600),
             ttl: Duration::from_secs(3600),
             retro: Duration::from_secs(600),
         }
@@ -621,7 +708,7 @@ mod tests {
                 &t,
             ));
         }
-        // Isti tekst dva puta sa istog prikaza nije šablon (jedan čovek, dva slanja).
+        // Isti tekst dva puta sa istog prikaza (istog posta) nije šablon: jedan čovek, dva slanja.
         for i in 0..6 {
             let t = [
                 "Prvi tekst o stazi.",
@@ -630,7 +717,7 @@ mod tests {
             ][i / 2];
             c.push(text(
                 "198.18.4.0/24",
-                &format!("p-{}", i % 2),
+                &format!("p-{}", i / 2),
                 &format!("d{}", i / 2),
                 &format!("d{i}"),
                 t,
@@ -642,6 +729,81 @@ mod tests {
         assert_eq!(nets, ["198.18.1.0/24", "198.18.2.0/24"], "{found:?}");
         assert_eq!((found[0].templated, found[0].copies), (6, 6));
         assert_eq!((found[1].templated, found[1].copies), (5, 0));
+    }
+
+    #[test]
+    fn twin_older_than_window_counts() {
+        // Klaka ponavlja jučerašnje šablone: blizanci (b…) nisu u prozoru, ali kNN ih nađe.
+        let mut c = audience(40);
+        for i in 0..6 {
+            c.push(text(
+                "198.18.1.0/24",
+                &format!("p-{}", i % 2),
+                &format!("a{i}"),
+                &format!("a{i}"),
+                &format!("Tekst {i}"),
+            ));
+        }
+        let old: Vec<_> = (0..6)
+            .map(|i| ("demo.local".to_owned(), format!("a{i}"), format!("juce{i}")))
+            .collect();
+        let found = templates(&c, &old, &cfg());
+        assert_eq!(
+            found
+                .iter()
+                .map(|f| (f.net.as_str(), f.templated))
+                .collect::<Vec<_>>(),
+            [("198.18.1.0/24", 6)]
+        );
+    }
+
+    #[test]
+    fn twins_on_the_same_post_do_not_count() {
+        // Čitaoci istog članka: isti citat iz teksta i bliske parafraze, ali svaki blizanac je na
+        // istom postu — iz prozora i iz ranijih dana. Prefiks ima komentare na 2 posta.
+        let mut c = audience(40);
+        for i in 0..8 {
+            let (post, t) = if i < 4 {
+                (
+                    "p-1",
+                    "„Staza će biti gotova do zime”, kaže opština.".to_owned(),
+                )
+            } else {
+                ("p-2", format!("Biblioteka nedeljom, napokon {i}."))
+            };
+            c.push(text(
+                "198.18.1.0/24",
+                post,
+                &format!("a{i}"),
+                &format!("a{i}"),
+                &t,
+            ));
+        }
+        let pairs: Vec<_> = (4..8)
+            .flat_map(|i| (4..8).filter(move |&j| j != i).map(move |j| (i, j)))
+            .map(|(i, j)| ("demo.local".to_owned(), format!("a{i}"), format!("a{j}")))
+            .collect();
+        assert!(templates(&c, &pairs, &cfg()).is_empty());
+    }
+
+    #[test]
+    fn templates_found_without_audience() {
+        // Noću nema pojedinaca u prozoru: organski udeo je ceo prior. Sa priorom 0,5 lift ne bi
+        // mogao preći 2, pa ni kohorta sa samim kopijama ne bi bila nađena.
+        let c: Vec<_> = (0..6)
+            .map(|i| {
+                text(
+                    "198.18.1.0/24",
+                    &format!("p-{}", i % 2),
+                    &format!("a{i}"),
+                    &format!("a{i}"),
+                    "Odlično rečeno, bravo.",
+                )
+            })
+            .collect();
+        let found = templates(&c, &[], &cfg());
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!((found[0].templated, found[0].baseline), (6, PRIOR_SHARE));
     }
 
     #[test]
@@ -657,6 +819,72 @@ mod tests {
             ));
         }
         assert!(templates(&c, &[], &cfg()).is_empty());
+    }
+
+    #[test]
+    fn copies_found_through_lsh_in_linear_time() {
+        // 3000 istih kopija na jednom postu, 3000 različitih tekstova na 100 postova i jedna sitna
+        // izmena na trećem postu, na kraju kofe: kopije imaju blizanca samo preko nje. Poređenje
+        // svakog para bi bilo 18 miliona poređenja; a i filter po postu nad celom kofom bi za
+        // svaku kopiju prešao ostalih 3000 pre izmene — 9 miliona koraka po traci.
+        let mut c = Vec::new();
+        for i in 0..3_000 {
+            c.push(text(
+                "198.18.1.0/24",
+                "p-1",
+                &format!("a{i}"),
+                &format!("a{i}"),
+                "Lep dan danas, pozdrav svima.",
+            ));
+        }
+        // Različiti tekstovi: nasumična slova (LCG), bez zajedničkih reči.
+        let mut seed = 17u64;
+        let mut letters = |n: usize| -> String {
+            (0..n)
+                .map(|k| {
+                    seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    if k % 7 == 6 {
+                        ' '
+                    } else {
+                        (b'a' + (seed >> 59) as u8 % 26) as char
+                    }
+                })
+                .collect()
+        };
+        for i in 0..3_000 {
+            let t = letters(42);
+            c.push(text(
+                "10.0.0.0/24",
+                &format!("p-r{}", i % 100),
+                &format!("r{i}"),
+                &format!("r{i}"),
+                &t,
+            ));
+        }
+        c.push(text(
+            "198.18.2.0/24",
+            "p-3",
+            "b",
+            "b",
+            "Lep dan danas, pozdrav svima iz Niša.",
+        ));
+        // Kopije samo na jednom postu (citat iz teksta): nemaju blizanca.
+        for i in 0..50 {
+            c.push(text(
+                "198.18.3.0/24",
+                "p-4",
+                &format!("q{i}"),
+                &format!("q{i}"),
+                "„Radovi počinju u martu”, piše u tekstu.",
+            ));
+        }
+        let sigs: Vec<_> = c.iter().map(|x| minhash(&x.text)).collect();
+        let copy = copies(&c, &sigs, 0.5);
+        assert!(copy[..3_000].iter().all(|&x| x), "kopije");
+        assert!(copy[6_000], "sitna izmena");
+        let organic = copy[3_000..6_000].iter().filter(|&&x| x).count();
+        assert!(organic < 30, "različiti tekstovi: {organic} sa blizancem");
+        assert!(!copy[6_001..].iter().any(|&x| x), "kopije na istom postu");
     }
 
     #[test]

@@ -11,6 +11,8 @@
 //! - `KLAKA_ENGINE_MIN_COMMENTS`  detektori komentara: najmanje komentara iz prefiksa (5)
 //! - `KLAKA_ENGINE_MAX_TEXT_DISTANCE`, `KLAKA_ENGINE_MIN_MINHASH`
 //!   deljeni šabloni: kosinusna udaljenost za parafrazu, MinHash za kopiju (0.2, 0.5)
+//! - `KLAKA_ENGINE_TEMPLATE_DAYS` deljeni šabloni: parafraza se traži među komentarima iz
+//!   ovoliko dana unazad, preko HNSW indeksa (7, docs/llm.md §5a)
 //! - `KLAKA_ENGINE_COVOTE_S`, `KLAKA_ENGINE_MIN_JACCARD`, `KLAKA_ENGINE_MIN_PARTNERS`,
 //!   `KLAKA_ENGINE_MIN_COHORT_NETS`, `KLAKA_ENGINE_PROMOTION_S`
 //!   usklađeni glasovi: razmak, sličnost skupova, partnera, prefiksa, prozor promocije
@@ -62,6 +64,7 @@ async fn main() {
         min_partners: env("KLAKA_ENGINE_MIN_PARTNERS", 2),
         min_cohort_nets: env("KLAKA_ENGINE_MIN_COHORT_NETS", 5),
         promotion: Duration::from_secs(env("KLAKA_ENGINE_PROMOTION_S", 600)),
+        template_lookback: Duration::from_secs(env("KLAKA_ENGINE_TEMPLATE_DAYS", 7) * 24 * 3600),
         ttl: Duration::from_secs(env("KLAKA_ENGINE_TTL_S", 3600)),
         retro: Duration::from_secs(env("KLAKA_ENGINE_RETRO_S", window_s)),
     };

@@ -150,3 +150,8 @@ test("komentari publike: po jedan u redu, bez numeracije i navodnika, bez ponavl
   const r = { response: '1. Konačno, čekamo ovo godinama.\n- „Ko će to platiti?"\n\n2) Konačno, čekamo ovo godinama.\nok' };
   assert.deepEqual(lines(r), ["Konačno, čekamo ovo godinama.", "Ko će to platiti?"]);
 });
+
+test("komentari publike: uvod modela nije komentar", () => {
+  const r = { response: "Evo šest komentara čitalaca ispod članka:\n\n1. Konačno, čekamo ovo godinama." };
+  assert.deepEqual(lines(r), ["Konačno, čekamo ovo godinama."]);
+});

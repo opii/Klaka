@@ -142,11 +142,22 @@ LIMIT 20;
 
 - Tok (migracija `0005`, `klaka-engine` `comments.rs`): svaki krug engine uzme komentare iz
   prozora koji još nemaju vektor za trenutni model (red poslova je sama tabela događaja), pošalje
-  ih Ollama-i u jednom `/api/embed` pozivu i upiše; detektor deljenih šablona onda uzme parove
-  bliže od praga. Za PoC parovi su iz samospajanja u prozoru; na obimu pravog portala — kNN
-  preko HNSW indeksa, kao u upitu iznad.
+  ih Ollama-i u jednom `/api/embed` pozivu i upiše; detektor deljenih šablona onda za svaki
+  komentar iz prozora traži 5 najbližih suseda **sa drugih postova** iz poslednjih 7 dana
+  (`KLAKA_ENGINE_TEMPLATE_DAYS`) preko HNSW indeksa, kao u upitu iznad, uz `hnsw.iterative_scan = relaxed_order` (pgvector
+  ≥ 0.8: pretraga se nastavlja kad filter odbaci kandidate iz indeksa). Proba na 20.000 vektora:
+  plan koristi HNSW, ceo kNN za komentare iz prozora 34 ms. Sused samo iz prozora bi bio lošiji
+  izbor — planer bi s pravom uzeo indeks po vremenu i sortiranje, kvadratno u prozoru.
+- **Blizanac sa istog posta se ne broji**, ni za kopije ni za parafraze (koncept §8): čitaoci
+  istog članka pišu o istoj temi, a citat iz teksta je kopija. Bez tog pravila (do 2026-10-20 u
+  kodu) lookback od 7 dana je organski udeo podigao sa 0,19 na 0,28 — čitaoci emulatora pišu o
+  ista 4 članka iz izvođenja u izvođenje — i `sabloni-4` je propustio prefiks sa 10/12 šablonskih
+  komentara (lift 2,98 uz prag 3). Sa pravilom: organski udeo 0,01–0,10, sva 4 prefiksa za
+  26–31 s (`caci/README.md`).
 - **MinHash ide prvi** (Rust, bez modela): copy-paste i sitne izmene hvata jeftino, i radi i
-  kad Ollama nije dostupna. Embeddings dodaju parafraze.
+  kad Ollama nije dostupna. Kandidati se biraju preko LSH (16 traka po 4 reda: par sličnosti
+  0,7 postaje kandidat sa 99%, nepovezan tekst sa 0,2%), ne poređenjem svakog para — 6000
+  komentara za deo sekunde. Embeddings dodaju parafraze.
 - `halfvec` = upola manje prostora od `vector`, uz zanemarljiv gubitak tačnosti za kosinus.
 - Prag udaljenosti se određuje u eval-u (§7), ne unapred. Orijentir sa prvog testa (2026-10-20):
   parafraza napada 0,108, nepovezana rečenica 0,629. Merenje na šablonima emulatora i

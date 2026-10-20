@@ -70,6 +70,8 @@ pub struct Config {
     pub min_cohort_nets: i64,
     /// Glasovi do ovoliko posle promocije posta (`promotion`) ne ulaze u usklađene glasove.
     pub promotion: Duration,
+    /// Deljeni šabloni: blizanac (parafraza) se traži među komentarima iz ovoliko unazad.
+    pub template_lookback: Duration,
     /// Koliko dugo presuda važi.
     pub ttl: Duration,
     /// Naknadni shadow: akcije prefiksa iz ovoliko vremena pre presude (verdicts.md §5).
@@ -596,6 +598,7 @@ mod tests {
             min_partners: 2,
             min_cohort_nets: 5,
             promotion: Duration::from_secs(600),
+            template_lookback: Duration::from_secs(7 * 24 * 3600),
             ttl: Duration::from_secs(3600),
             retro: Duration::from_secs(600),
         }

@@ -20,9 +20,13 @@ use crate::{Config, Finding};
 
 pub const COORDINATED_VOTES: &str = "coordinated-votes";
 
-/// Element sa više glasača od ovoga se preskače (kvadratan broj parova). Takav cilj je ionako
-/// slab dokaz: popularan komentar zajedno glasaju i ljudi koji se ne poznaju.
-const MAX_ELEMENT_VOTERS: usize = 2_000;
+/// Glas iz trenutka u kome isti element ima više glasova od ovoga (u ±`covote`) se ne
+/// uparuje. Gust trenutak je slab dokaz — vruć komentar posle velike vesti zajedno glasaju
+/// hiljade ljudi koji se ne poznaju, i bez ove granice nastala bi ogromna organska „kohorta" — a
+/// i kvadratan trošak. Granica važi za trenutak, ne za ceo prozor: glasovi istog komentara iz
+/// mirnijeg trenutka se uparuju, pa klaka koja udari kad nalet prođe ostaje vidljiva. Ujedno
+/// ograničava parove po glasu, pa ih ima linearno mnogo.
+const MAX_DENSITY: usize = 500;
 
 /// Element glasa: (portal, post, cilj, smer).
 type Element<'a> = (&'a str, &'a str, &'a str, i32);
@@ -128,7 +132,17 @@ pub fn coordinated(votes: &[VoteAt], promotions: &[PromotionAt], cfg: &Config) -
         p
     };
 
-    // Elementi → glasači; parovi u razmaku ≤ covote.
+    // Čvor bez bar dva elementa na bar `min_posts` postova ne može imati ivicu — ne uparuje se.
+    // Kod vrućeg komentara to su skoro svi glasači (glasaju jednom), pa parova ima malo.
+    let eligible: Vec<bool> = sets
+        .iter()
+        .map(|set| {
+            let posts: BTreeSet<&str> = set.keys().map(|&(post, _, _)| post).collect();
+            set.len() >= 2 && posts.len() as i64 >= cfg.min_posts
+        })
+        .collect();
+
+    // Elementi → glasači (svi, zbog gustine); parovi u razmaku ≤ covote, van gustih trenutaka.
     let mut voters: HashMap<Element, Vec<(i64, usize)>> = HashMap::new();
     for (n, set) in sets.iter().enumerate() {
         for (&(post, target, dir), &t) in set {
@@ -138,33 +152,61 @@ pub fn coordinated(votes: &[VoteAt], promotions: &[PromotionAt], cfg: &Config) -
                 .push((t, n));
         }
     }
-    let mut pairs: HashMap<(usize, usize), (i64, BTreeSet<&str>)> = HashMap::new();
-    for ((_, post, _, _), list) in voters.iter_mut() {
-        if list.len() > MAX_ELEMENT_VOTERS {
+    let mut co: HashMap<(usize, usize), u32> = HashMap::new();
+    for list in voters.values_mut() {
+        if list.iter().filter(|&&(_, n)| eligible[n]).count() < 2 {
             continue;
         }
         list.sort_unstable();
+        let (mut lo, mut hi) = (0, 0);
         for i in 0..list.len() {
-            for j in i + 1..list.len() {
-                if list[j].0 - list[i].0 > covote_ms {
-                    break;
+            // Gustina oko glasa i: glasovi u [t - covote, t + covote].
+            while list[i].0 - list[lo].0 > covote_ms {
+                lo += 1;
+            }
+            while hi < list.len() && list[hi].0 - list[i].0 <= covote_ms {
+                hi += 1;
+            }
+            let n = list[i].1;
+            if !eligible[n] || hi - lo > MAX_DENSITY {
+                continue;
+            }
+            for &(_, m) in &list[i + 1..hi] {
+                if eligible[m] {
+                    *co.entry((n.min(m), n.max(m))).or_default() += 1;
                 }
-                let key = (list[i].1.min(list[j].1), list[i].1.max(list[j].1));
-                let e = pairs.entry(key).or_default();
-                e.0 += 1;
-                e.1.insert(post);
             }
         }
     }
 
-    // Ivice, pa k-jezgro.
-    let mut adj: Vec<BTreeMap<usize, usize>> = vec![BTreeMap::new(); sets.len()];
-    for (&(a, b), (co, posts)) in &pairs {
-        let union = sets[a].len() + sets[b].len() - *co as usize;
-        let jaccard = *co as f64 / union as f64;
-        if *co >= 2 && posts.len() as i64 >= cfg.min_posts && jaccard >= cfg.min_jaccard {
-            adj[a].insert(b, posts.len());
-            adj[b].insert(a, posts.len());
+    // Ivice: za par sa ≥ 2 zajednička elementa tačno se prebroje zajednički elementi i postovi,
+    // pa važe pragovi postova i Jaccard-a. Pa k-jezgro.
+    let shared = |a: usize, b: usize| {
+        let (small, large) = if sets[a].len() <= sets[b].len() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        let mut posts = BTreeSet::new();
+        let mut count = 0usize;
+        for (e, &t) in &sets[small] {
+            if sets[large]
+                .get(e)
+                .is_some_and(|&u| (u - t).abs() <= covote_ms)
+            {
+                count += 1;
+                posts.insert(e.0);
+            }
+        }
+        (count, posts)
+    };
+    let mut adj: Vec<BTreeMap<usize, BTreeSet<&str>>> = vec![BTreeMap::new(); sets.len()];
+    for (&(a, b), _) in co.iter().filter(|&(_, &c)| c >= 2) {
+        let (count, posts) = shared(a, b);
+        let jaccard = count as f64 / (sets[a].len() + sets[b].len() - count) as f64;
+        if count >= 2 && posts.len() as i64 >= cfg.min_posts && jaccard >= cfg.min_jaccard {
+            adj[a].insert(b, posts.clone());
+            adj[b].insert(a, posts);
         }
     }
     let k = usize::try_from(cfg.min_partners).unwrap_or(usize::MAX);
@@ -211,7 +253,7 @@ pub fn coordinated(votes: &[VoteAt], promotions: &[PromotionAt], cfg: &Config) -
         let partners: Vec<usize> = adj[n].keys().copied().filter(|&m| alive[m]).collect();
         let posts: BTreeSet<&str> = partners
             .iter()
-            .flat_map(|&m| pairs[&(n.min(m), n.max(m))].1.iter().copied())
+            .flat_map(|m| adj[n][m].iter().copied())
             .collect();
         out.push(Member {
             portal: portal.to_owned(),
@@ -263,6 +305,7 @@ mod tests {
             min_partners: 2,
             min_cohort_nets: 5,
             promotion: Duration::from_secs(600),
+            template_lookback: Duration::from_secs(7 * 24 * 3600),
             ttl: Duration::from_secs(3600),
             retro: Duration::from_secs(600),
         }
@@ -357,6 +400,43 @@ mod tests {
                 .iter()
                 .all(|m| m.cohort == 12 && m.posts == 3 && m.partners >= 2)
         );
+    }
+
+    /// Nalet publike na ciljeve klake: `per_target` glasova za svaki od tri cilja u
+    /// [from_s, to_s); svaki čitalac glasa za dva cilja (dva posta), pa ulazi u uparivanje.
+    fn burst(per_target: usize, from_s: i64, to_s: i64, seed: u64) -> Vec<VoteAt> {
+        let mut s = seed;
+        let mut out = Vec::new();
+        for i in 0..per_target {
+            let net = format!("10.{}.{}.0/24", i / 256, i % 256);
+            for &(post, target) in &TARGETS[..2] {
+                let t = from_s + (lcg(&mut s) % (to_s - from_s) as u64) as i64;
+                out.push(v(&net, post, target, 1, t));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn klaka_after_a_hot_moment_found() {
+        // Komentari su bili vrući (3000 glasova u 5 minuta, ~1200 u ±2 min) pre klake; stara
+        // granica po celom prozoru bi ih preskočila i klaka bi bila nevidljiva.
+        let mut votes = burst(3_000, 300, 600, 5);
+        votes.extend(klaka(12, 1, 0));
+        let found = coordinated(&votes, &[], &cfg());
+        let nets: Vec<_> = found.iter().map(|m| m.net.as_str()).collect();
+        assert_eq!(found.len(), 12, "{nets:?}");
+        assert!(nets.iter().all(|n| n.starts_with("198.18.")));
+    }
+
+    #[test]
+    fn hot_moment_makes_no_organic_cohort() {
+        // Nalet: 3000 čitalaca glasa za ista dva komentara na dva posta u istih 5 minuta. Bez
+        // granice gustine svaki par u razmaku ≤ 2 min bi bio „usklađen" — ogromna lažna kohorta.
+        // Cena: klaka usred takvog naleta se ne vidi (u ovom testu ni ona).
+        let mut votes = burst(3_000, 0, 300, 9);
+        votes.extend(klaka(12, 1, 100));
+        assert!(coordinated(&votes, &[], &cfg()).is_empty());
     }
 
     #[test]

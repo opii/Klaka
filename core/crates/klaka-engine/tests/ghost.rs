@@ -32,6 +32,7 @@ fn cfg() -> Config {
         min_partners: 2,
         min_cohort_nets: 5,
         promotion: Duration::from_secs(600),
+        template_lookback: Duration::from_secs(7 * 24 * 3600),
         ttl: Duration::from_secs(3600),
         retro: Duration::from_secs(600),
     }
