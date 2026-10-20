@@ -1,0 +1,127 @@
+# Ceo projekat lokalno, bez ičega instaliranog osim Docker-a.
+#
+#   docker compose up -d --wait                  PostgreSQL (+pgvector), Valkey, Ollama + naš sistem
+#   docker compose run --rm rust cargo check     Rust alati (core/)
+#   docker compose run --rm node npm run build   Node alati (radni folder: ts/)
+#
+# Prvo pokretanje preuzima Ollama modele (nekoliko GB) — ppd-engine čeka da se završi.
+# Lozinke su razvojne podrazumevane vrednosti; menjaju se u .env (vidi .env.example).
+# Portovi su vezani samo za 127.0.0.1, u opsegu 1xxxx (da se ne sudare sa drugim projektima).
+
+name: ppd
+
+x-core: &core
+  image: ppd-core:dev
+  build:
+    context: ./core
+  restart: "no"
+  environment:
+    PPD_POSTGRES_URL: postgres://${POSTGRES_USER:-ppd}:${POSTGRES_PASSWORD:-ppd-dev}@postgres:5432/${POSTGRES_DB:-ppd}
+    PPD_VALKEY_URL: redis://valkey:6379/0
+    PPD_OLLAMA_URL: http://ollama:11434
+    PPD_LLM_MODEL: ${PPD_LLM_MODEL:-gemma3:4b}
+    PPD_EMBED_MODEL: ${PPD_EMBED_MODEL:-bge-m3}
+  depends_on:
+    postgres: { condition: service_healthy }
+    valkey: { condition: service_healthy }
+
+x-dev-user: &dev-user
+  user: "${UID:-1000}:${GID:-1000}"
+
+services:
+  # --- infrastruktura -------------------------------------------------------
+
+  # PostgreSQL 17 + pgvector: događaji (particije po danu), stanje, audit, embeddings (HNSW).
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ppd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ppd-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-ppd}
+    ports: ["127.0.0.1:${POSTGRES_PORT:-15432}:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./core/deploy/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      retries: 20
+
+  valkey:
+    image: valkey/valkey:8.0
+    ports: ["127.0.0.1:${VALKEY_PORT:-16379}:6379"]
+    volumes: [valkey-data:/data]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      retries: 20
+
+  # Lokalni LLM i embeddings (Ollama, otvoreni modeli).
+  # Modeli se preuzimaju po imenu pri prvom pokretanju (ollama-pull) i čuvaju u volumenu.
+  ollama:
+    image: ollama/ollama:0.12.0
+    ports: ["127.0.0.1:${OLLAMA_PORT:-18434}:11434"]
+    volumes: [ollama-models:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      retries: 20
+
+  ollama-pull:
+    image: ollama/ollama:0.12.0
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["sh", "-c", "ollama pull \"$$0\" && ollama pull \"$$1\""]
+    command: ["${PPD_LLM_MODEL:-gemma3:4b}", "${PPD_EMBED_MODEL:-bge-m3}"]
+    depends_on:
+      ollama: { condition: service_healthy }
+    restart: "no"
+
+  # --- naš sistem (core/) ---------------------------------------------------
+
+  ppd-collector:
+    <<: *core
+    command: ["ppd-collector"]
+    ports: ["127.0.0.1:${COLLECTOR_PORT:-18080}:8080"]
+
+  ppd-api:
+    <<: *core
+    command: ["ppd-api"]
+    ports: ["127.0.0.1:${API_PORT:-18081}:8081"]
+
+  ppd-engine:
+    <<: *core
+    command: ["ppd-engine"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      valkey: { condition: service_healthy }
+      ollama-pull: { condition: service_completed_successfully }
+
+  # --- razvojni alati (docker compose run --rm <alat> …) --------------------
+
+  rust:
+    profiles: [tools]
+    <<: *dev-user
+    build:
+      context: ./core
+      target: dev
+    image: ppd-rust-dev:1.88
+    working_dir: /work/core
+    volumes: [".:/work"]
+    environment:
+      CARGO_HOME: /work/core/.cargo-docker
+      CARGO_TARGET_DIR: /work/core/target
+
+  node:
+    profiles: [tools]
+    <<: *dev-user
+    image: node:22-bookworm-slim
+    working_dir: /work/ts
+    volumes: [".:/work"]
+    environment:
+      npm_config_cache: /work/.npm-docker
+
+volumes:
+  postgres-data:
+  valkey-data:
+  ollama-models:

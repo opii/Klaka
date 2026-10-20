@@ -34,3 +34,9 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+!.env.example
+
+# Keš razvojnih kontejnera i lokalni modeli
+core/target/
+core/.cargo-docker/
+.npm-docker/

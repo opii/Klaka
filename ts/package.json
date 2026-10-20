@@ -1,0 +1,15 @@
+{
+  "name": "@ppd/client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Senzor u browseru: događaji, token pregleda, honeypot. Bez logike odlučivanja.",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --minify --format=iife --global-name=ppd --target=es2017 --outfile=dist/ppd.min.js && esbuild src/index.ts --bundle --format=esm --target=es2017 --outfile=dist/ppd.esm.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  }
+}
