@@ -1,6 +1,6 @@
 //! Token pregleda — `core/spec/token.md`.
 //!
-//! Format `ppd1.<kid>.<payload>.<sig>`, Ed25519. Provera ide normativnim redosledom iz
+//! Format `klaka1.<kid>.<payload>.<sig>`, Ed25519. Provera ide normativnim redosledom iz
 //! spec-a §4 i vraća prvi neuspeh, tako da svi SDK-ovi daju isti rezultat za isti ulaz.
 
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// Najveća dozvoljena dužina tokena u bajtovima; duži je `malformed` bez dekodiranja.
 pub const MAX_TOKEN_LEN: usize = 1024;
 
-const PREFIX: &str = "ppd1.";
+const PREFIX: &str = "klaka1.";
 const KID_MAX_LEN: usize = 32;
 const SIG_B64_LEN: usize = 86;
 const VID_B64_LEN: usize = 22;
@@ -213,12 +213,12 @@ struct Parts<'a> {
     kid: &'a str,
     payload: &'a str,
     sig: &'a str,
-    /// `ppd1.<kid>.<payload>` — tačno ono što je potpisano.
+    /// `klaka1.<kid>.<payload>` — tačno ono što je potpisano.
     signed: &'a str,
 }
 
 /// Korak 2: ekvivalent regex-a
-/// `^ppd1\.[a-z0-9-]{1,32}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}$` uz dužinu ≤ 1024.
+/// `^klaka1\.[a-z0-9-]{1,32}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}$` uz dužinu ≤ 1024.
 fn split_strict(token: &str) -> Option<Parts<'_>> {
     if token.len() > MAX_TOKEN_LEN {
         return None;
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn split_rejects_extra_dot() {
         let sig = "A".repeat(SIG_B64_LEN);
-        assert!(split_strict(&format!("ppd1.k.p.{sig}")).is_some());
-        assert!(split_strict(&format!("ppd1.k.p.x.{sig}")).is_none());
+        assert!(split_strict(&format!("klaka1.k.p.{sig}")).is_some());
+        assert!(split_strict(&format!("klaka1.k.p.x.{sig}")).is_none());
     }
 }

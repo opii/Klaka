@@ -1,9 +1,10 @@
 [package]
-name = "ppd-collector"
+name = "klaka-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-ppd-core.workspace = true
+klaka-core.workspace = true
+klaka-llm.workspace = true

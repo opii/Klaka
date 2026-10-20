@@ -1,5 +1,5 @@
 // Zajednički test vektori iz core/spec/test-vectors/token.json (spec token.md §4).
-// Dok smo monorepo, čitaju se relativnom putanjom; PPD_TEST_VECTORS je može zameniti.
+// Dok smo monorepo, čitaju se relativnom putanjom; KLAKA_TEST_VECTORS je može zameniti.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -26,7 +26,7 @@ interface Vectors {
 
 // dist/test/ → sdk/node/ → koren repoa
 const path =
-  process.env.PPD_TEST_VECTORS ??
+  process.env.KLAKA_TEST_VECTORS ??
   fileURLToPath(new URL("../../../../core/spec/test-vectors/token.json", import.meta.url));
 const doc = JSON.parse(readFileSync(path, "utf8")) as Vectors;
 

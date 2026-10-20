@@ -72,7 +72,7 @@ export function articlePage(o: {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Demo portal</title>
 <style>${STYLE}</style>
-<script src="/ppd.min.js" data-api="${esc(o.apiPublic)}" data-portal="${esc(o.portal)}" data-post="${esc(o.post)}" async></script>
+<script src="/klaka.min.js" data-api="${esc(o.apiPublic)}" data-portal="${esc(o.portal)}" data-post="${esc(o.post)}" async></script>
 </head>
 <body>
 <main>
@@ -98,7 +98,7 @@ export function articlePage(o: {
     if (!b) return;
     const box = b.closest("[data-comment]");
     const headers = Object.assign({ "Content-Type": "application/json" },
-      window.ppd ? await window.ppd.headers() : {});
+      window.klaka ? await window.klaka.headers() : {});
     const res = await fetch("/api/vote", { method: "POST", headers,
       body: JSON.stringify({ comment: box.dataset.comment, dir: Number(b.dataset.dir) }) });
     if (res.ok) {

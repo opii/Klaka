@@ -2,20 +2,20 @@
 // Vidi docs/tech_stack.md §5.
 //
 // Upotreba bez koda (klasičan <script>):
-//   <script src="ppd.min.js" data-api="https://ppd.example.org"
+//   <script src="klaka.min.js" data-api="https://klaka.example.org"
 //           data-portal="demo.local" data-post="p-1001" async></script>
-// Ili ručno: ppd.init({ api, portal, post }).
+// Ili ručno: klaka.init({ api, portal, post }).
 //
-// Token stiže u: (a) svako polje <input name="ppd_token"> na stranici, (b) ppd.headers()
-// za fetch pozive (zaglavlje X-PPD-Token) — oba oblika SDK prihvata (core/spec/sdk.md §1).
+// Token stiže u: (a) svako polje <input name="klaka_token"> na stranici, (b) klaka.headers()
+// za fetch pozive (zaglavlje X-Klaka-Token) — oba oblika SDK prihvata (core/spec/sdk.md §1).
 
 import { requestToken, type Options } from "./view.js";
 
 export type { Options };
 export const VERSION = "0.1.0";
 
-const FIELD = "ppd_token";
-const HEADER = "X-PPD-Token";
+const FIELD = "klaka_token";
+const HEADER = "X-Klaka-Token";
 
 let pending: Promise<string | null> | null = null;
 
@@ -30,7 +30,7 @@ export function init(o: Options): Promise<string | null> {
   return pending;
 }
 
-/** Token ovog prikaza, ili `null` ako ga nema (init nije pozvan, ppd-api nedostupan). */
+/** Token ovog prikaza, ili `null` ako ga nema (init nije pozvan, klaka-api nedostupan). */
 export function token(): Promise<string | null> {
   return pending ?? Promise.resolve(null);
 }
@@ -41,7 +41,7 @@ export async function headers(): Promise<Record<string, string>> {
   return t ? { [HEADER]: t } : {};
 }
 
-/** Upisuje token u sva polja `ppd_token` unutar `root` (npr. za formu dodatu posle učitavanja). */
+/** Upisuje token u sva polja `klaka_token` unutar `root` (npr. za formu dodatu posle učitavanja). */
 export function fillForms(t: string, root: ParentNode = document): void {
   root.querySelectorAll<HTMLInputElement>(`input[name="${FIELD}"]`).forEach((i) => {
     i.value = t;

@@ -363,6 +363,53 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "klaka-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "http-body-util",
+ "klaka-core",
+ "klaka-llm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http",
+]
+
+[[package]]
+name = "klaka-collector"
+version = "0.1.0"
+dependencies = [
+ "klaka-core",
+]
+
+[[package]]
+name = "klaka-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "klaka-engine"
+version = "0.1.0"
+dependencies = [
+ "klaka-core",
+ "klaka-llm",
+]
+
+[[package]]
+name = "klaka-llm"
+version = "0.1.0"
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -430,53 +477,6 @@ dependencies = [
  "der",
  "spki",
 ]
-
-[[package]]
-name = "ppd-api"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64",
- "ed25519-dalek",
- "getrandom 0.3.4",
- "http-body-util",
- "ppd-core",
- "ppd-llm",
- "serde",
- "serde_json",
- "tokio",
- "tower",
- "tower-http",
-]
-
-[[package]]
-name = "ppd-collector"
-version = "0.1.0"
-dependencies = [
- "ppd-core",
-]
-
-[[package]]
-name = "ppd-core"
-version = "0.1.0"
-dependencies = [
- "base64",
- "ed25519-dalek",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "ppd-engine"
-version = "0.1.0"
-dependencies = [
- "ppd-core",
- "ppd-llm",
-]
-
-[[package]]
-name = "ppd-llm"
-version = "0.1.0"
 
 [[package]]
 name = "proc-macro2"

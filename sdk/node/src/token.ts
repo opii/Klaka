@@ -44,7 +44,7 @@ export interface Verification {
 export const MAX_TOKEN_LEN = 1024;
 
 // Korak 2 (spec §4), doslovno.
-const TOKEN_RE = /^ppd1\.([a-z0-9-]{1,32})\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{86})$/;
+const TOKEN_RE = /^klaka1\.([a-z0-9-]{1,32})\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{86})$/;
 const B64URL_RE = /^[A-Za-z0-9_-]*$/;
 const VID_RE = /^[A-Za-z0-9_-]{22}$/;
 
@@ -61,7 +61,7 @@ export class TokenVerifier {
     this.#portal = portal;
     this.#policy = { ...policy };
     this.#keys = new Map(Object.entries(keys).map(([kid, k]) => [kid, publicKeyFromB64u(kid, k)]));
-    if (this.#keys.size === 0) throw new Error("ppd: nema nijednog javnog ključa u konfiguraciji");
+    if (this.#keys.size === 0) throw new Error("klaka: nema nijednog javnog ključa u konfiguraciji");
   }
 
   get policy(): Readonly<Policy> {
@@ -150,6 +150,6 @@ function parsePayload(b64: string): Payload | null {
 
 function publicKeyFromB64u(kid: string, b64: string): KeyObject {
   const raw = decodeCanonical(b64);
-  if (!raw || raw.length !== 32) throw new Error(`ppd: javni ključ "${kid}" nije base64url od 32 bajta`);
+  if (!raw || raw.length !== 32) throw new Error(`klaka: javni ključ "${kid}" nije base64url od 32 bajta`);
   return createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: b64 }, format: "jwk" });
 }

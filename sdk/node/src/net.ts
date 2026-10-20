@@ -1,5 +1,5 @@
 // Mrežni prefiks klijenta (core/spec/events.md §3, polje `net`). Pun IP ne napušta portal.
-// Mora da daje isto što i ppd_core::net::prefix — core/spec/test-vectors/net.json.
+// Mora da daje isto što i klaka_core::net::prefix — core/spec/test-vectors/net.json.
 
 import { isIPv4, isIPv6 } from "node:net";
 

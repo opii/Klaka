@@ -1,8 +1,8 @@
 {
-  "name": "@ppd/sdk-node",
+  "name": "@klaka/sdk-node",
   "version": "0.1.0",
   "private": true,
-  "description": "PPD SDK za Node backend portala: provera tokena pregleda i odluka count/shadow.",
+  "description": "Klaka SDK za Node backend portala: provera tokena pregleda i odluka count/shadow.",
   "type": "module",
   "engines": { "node": ">=18" },
   "exports": {

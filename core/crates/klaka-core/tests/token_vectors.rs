@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
-use ppd_core::token::{Payload, Policy, Verifier, issue, verifying_key_from_b64u};
+use klaka_core::token::{Payload, Policy, Verifier, issue, verifying_key_from_b64u};
 use serde_json::Value;
 
 const VECTORS: &str = include_str!("../../../spec/test-vectors/token.json");
@@ -68,7 +68,7 @@ fn all_vectors_pass() {
 }
 
 /// Ed25519 je deterministički: iz objavljenog test seed-a `issue` mora da da bajt-identične
-/// tokene. Time je `ppd-core` kanonski generator, a fajl vektora zaštićen od tihe izmene.
+/// tokene. Time je `klaka-core` kanonski generator, a fajl vektora zaštićen od tihe izmene.
 #[test]
 fn issue_reproduces_vectors() {
     let doc = vectors();

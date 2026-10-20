@@ -6,14 +6,14 @@ imena funkcija) su slobodni; ponašanje nije.
 ## 1. Javni API (koncept, ne potpis)
 
 ```
-verifier = Ppd(config)
+verifier = Klaka(config)
 result   = verifier.onVote(request, post, target, dir)       → { decision }
 result   = verifier.onComment(request, post, comment, author, text, replyTo)
 verifier.onModeration(comment, result, reason)
 verifier.onPost(post, rev, url, title, section, body)
 ```
 
-`request` daje: token (zaglavlje `X-PPD-Token` ili polje forme `ppd_token`), IP klijenta
+`request` daje: token (zaglavlje `X-Klaka-Token` ili polje forme `klaka_token`), IP klijenta
 (posle pouzdanog proxy-ja — konfiguracija), user-agent.
 
 ## 2. Tok jedne akcije (glas ili komentar)
@@ -21,7 +21,7 @@ verifier.onPost(post, rev, url, title, section, body)
 ```
 1. token_result = verify(token, portal, post, now)              token.md §4, koraci 1–9
 2. ako je token parsabilan (vid poznat):
-       uses = INCR ppd:v1:<portal>:uses:<vid>  (Valkey; TTL = max_age_ms)
+       uses = INCR klaka:v1:<portal>:uses:<vid>  (Valkey; TTL = max_age_ms)
        ako uses > max_uses → token_result = overused             korak 10
 3. action = najstroža presuda iz MGET ključeva                    verdicts.md §1
 4. decision =
@@ -59,7 +59,7 @@ bafer; ostali: pozadinski red).
   "max_age_ms": 7200000,
   "max_uses": 50,
   "valkey_url": "redis://valkey:6379/0",
-  "collector_url": "http://ppd-collector:8080",
+  "collector_url": "http://klaka-collector:8080",
   "api_key": "<portal_api_key>"
 }
 ```

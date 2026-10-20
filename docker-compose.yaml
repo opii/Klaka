@@ -4,21 +4,21 @@
 #   docker compose run --rm rust cargo check     Rust alati (core/)
 #   docker compose run --rm node npm run build   Node alati (radni folder: ts/)
 #
-# Prvo pokretanje preuzima Ollama modele (nekoliko GB) — ppd-engine čeka da se završi.
+# Prvo pokretanje preuzima Ollama modele (nekoliko GB) — klaka-engine čeka da se završi.
 # Lozinke su razvojne podrazumevane vrednosti; menjaju se u .env (vidi .env.example).
 # Portovi su vezani samo za 127.0.0.1, u opsegu 1xxxx (da se ne sudare sa drugim projektima).
 
-name: ppd
+name: klaka
 
 x-core-env: &core-env
-  PPD_POSTGRES_URL: postgres://${POSTGRES_USER:-ppd}:${POSTGRES_PASSWORD:-ppd-dev}@postgres:5432/${POSTGRES_DB:-ppd}
-  PPD_VALKEY_URL: redis://valkey:6379/0
-  PPD_OLLAMA_URL: http://ollama:11434
-  PPD_LLM_MODEL: ${PPD_LLM_MODEL:-gemma3:4b}
-  PPD_EMBED_MODEL: ${PPD_EMBED_MODEL:-bge-m3}
+  KLAKA_POSTGRES_URL: postgres://${POSTGRES_USER:-klaka}:${POSTGRES_PASSWORD:-klaka-dev}@postgres:5432/${POSTGRES_DB:-klaka}
+  KLAKA_VALKEY_URL: redis://valkey:6379/0
+  KLAKA_OLLAMA_URL: http://ollama:11434
+  KLAKA_LLM_MODEL: ${KLAKA_LLM_MODEL:-gemma3:4b}
+  KLAKA_EMBED_MODEL: ${KLAKA_EMBED_MODEL:-bge-m3}
 
 x-core: &core
-  image: ppd-core:dev
+  image: klaka-core:dev
   build:
     context: ./core
   restart: "no"
@@ -37,9 +37,9 @@ services:
   postgres:
     image: pgvector/pgvector:0.8.1-pg17
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ppd}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ppd-dev}
-      POSTGRES_DB: ${POSTGRES_DB:-ppd}
+      POSTGRES_USER: ${POSTGRES_USER:-klaka}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-klaka-dev}
+      POSTGRES_DB: ${POSTGRES_DB:-klaka}
     ports: ["127.0.0.1:${POSTGRES_PORT:-15432}:5432"]
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -74,31 +74,31 @@ services:
     environment:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["sh", "-c", "ollama pull \"$$0\" && ollama pull \"$$1\""]
-    command: ["${PPD_LLM_MODEL:-gemma3:4b}", "${PPD_EMBED_MODEL:-bge-m3}"]
+    command: ["${KLAKA_LLM_MODEL:-gemma3:4b}", "${KLAKA_EMBED_MODEL:-bge-m3}"]
     depends_on:
       ollama: { condition: service_healthy }
     restart: "no"
 
   # --- naš sistem (core/) ---------------------------------------------------
 
-  ppd-collector:
+  klaka-collector:
     <<: *core
-    command: ["ppd-collector"]
+    command: ["klaka-collector"]
     ports: ["127.0.0.1:${COLLECTOR_PORT:-18080}:8080"]
 
-  ppd-api:
+  klaka-api:
     <<: *core
-    command: ["ppd-api"]
+    command: ["klaka-api"]
     ports: ["127.0.0.1:${API_PORT:-18081}:8081"]
     environment:
       <<: *core-env
-      PPD_PORTALS: ${PPD_PORTALS:-demo.local}
-      PPD_SIGNING_KID: ${PPD_SIGNING_KID:-dev-1}
-      PPD_SIGNING_SEED: ${PPD_SIGNING_SEED:-}
+      KLAKA_PORTALS: ${KLAKA_PORTALS:-demo.local}
+      KLAKA_SIGNING_KID: ${KLAKA_SIGNING_KID:-dev-1}
+      KLAKA_SIGNING_SEED: ${KLAKA_SIGNING_SEED:-}
 
-  ppd-engine:
+  klaka-engine:
     <<: *core
-    command: ["ppd-engine"]
+    command: ["klaka-engine"]
     depends_on:
       postgres: { condition: service_healthy }
       valkey: { condition: service_healthy }
@@ -110,19 +110,19 @@ services:
     build:
       context: .
       dockerfile: demo/Dockerfile
-    image: ppd-demo:dev
+    image: klaka-demo:dev
     environment:
-      PPD_PORTAL: demo.local
-      PPD_API_URL: http://ppd-api:8081
-      PPD_API_PUBLIC_URL: http://localhost:${API_PORT:-18081}
+      KLAKA_PORTAL: demo.local
+      KLAKA_API_URL: http://klaka-api:8081
+      KLAKA_API_PUBLIC_URL: http://localhost:${API_PORT:-18081}
     ports: ["127.0.0.1:${DEMO_PORT:-18082}:3000"]
     depends_on:
-      ppd-api: { condition: service_started }
+      klaka-api: { condition: service_started }
 
   # --- razvojni alati (docker compose run --rm <alat> …) --------------------
 
   # Test u pravom browseru. Mreža host-a: browser vidi iste adrese kao korisnik
-  # (demo na localhost:18082, ppd-api na localhost:18081 — pravi CORS između dva origin-a).
+  # (demo na localhost:18082, klaka-api na localhost:18081 — pravi CORS između dva origin-a).
   e2e:
     profiles: [tools]
     <<: *dev-user
@@ -142,7 +142,7 @@ services:
     build:
       context: ./core
       target: dev
-    image: ppd-rust-dev:1.88
+    image: klaka-rust-dev:1.88
     working_dir: /work/core
     volumes: [".:/work"]
     environment:

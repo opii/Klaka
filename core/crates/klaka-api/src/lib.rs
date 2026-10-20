@@ -11,7 +11,7 @@ use axum::{Json, Router};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
-use ppd_core::token::{Payload, issue};
+use klaka_core::token::{Payload, issue};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 

@@ -10,7 +10,7 @@ Format `token.json`: `config` (javni ključevi i pragovi za test), `defaults` (p
 i `expect` (rezultat).
 
 Test ključ `test-1` je objavljen sa seed-om **samo za testove**. Ed25519 je deterministički,
-pa `ppd-core` iz seed-a reprodukuje iste tokene; test u `ppd-core` biće kanonski generator
+pa `klaka-core` iz seed-a reprodukuje iste tokene; test u `klaka-core` biće kanonski generator
 i proveravati da se fajl nije promenio.
 
 Vektori su provereni dvema nezavisnim implementacijama (Node `crypto`, PHP `sodium`) pri

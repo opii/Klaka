@@ -7,8 +7,8 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use ed25519_dalek::SigningKey;
 use http_body_util::BodyExt;
-use ppd_api::{Config, app};
-use ppd_core::token::{Policy, TokenResult, Verifier, verifying_key_from_b64u};
+use klaka_api::{Config, app};
+use klaka_core::token::{Policy, TokenResult, Verifier, verifying_key_from_b64u};
 use serde_json::Value;
 use tower::ServiceExt;
 

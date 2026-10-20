@@ -1,4 +1,4 @@
-# pre_publish_detector (ppd)
+# Klaka
 
 Detekcija koordinisanih napada (glasovi, komentari) na portalima — isključivo iz podataka
 koje portal sam može da prikupi. Polazna tačka: [`docs/koncept_detekcija_sa_portala.md`](docs/koncept_detekcija_sa_portala.md).

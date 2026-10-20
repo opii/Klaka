@@ -1,5 +1,5 @@
 [package]
-name = "ppd-llm"
+name = "klaka-llm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

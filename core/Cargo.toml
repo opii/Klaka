@@ -9,8 +9,8 @@ license = "UNLICENSED"
 publish = false
 
 [workspace.dependencies]
-ppd-core = { path = "crates/ppd-core" }
-ppd-llm = { path = "crates/ppd-llm" }
+klaka-core = { path = "crates/klaka-core" }
+klaka-llm = { path = "crates/klaka-llm" }
 base64 = "0.22"
 ed25519-dalek = "2"
 serde = { version = "1", features = ["derive"] }

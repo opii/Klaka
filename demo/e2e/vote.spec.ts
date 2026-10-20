@@ -1,4 +1,4 @@
-// Ceo lanac u pravom browseru: ts/ snippet → ppd-api (/v1/view) → demo backend → sdk/node.
+// Ceo lanac u pravom browseru: ts/ snippet → klaka-api (/v1/view) → demo backend → sdk/node.
 // Svaki test koristi svoj komentar, da se brojači ne mešaju.
 
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -19,11 +19,11 @@ async function lastVote(request: APIRequestContext): Promise<Vote> {
   return votes.at(-1)!;
 }
 
-/** Učitava članak i čeka da snippet dobije token od ppd-api. */
+/** Učitava članak i čeka da snippet dobije token od klaka-api. */
 async function openArticle(page: Page): Promise<void> {
   await page.goto("/");
-  const token = await page.evaluate(async () => (window as unknown as { ppd: { token(): Promise<string | null> } }).ppd.token());
-  expect(token, "snippet treba da dobije token od ppd-api").toMatch(/^ppd1\./);
+  const token = await page.evaluate(async () => (window as unknown as { klaka: { token(): Promise<string | null> } }).klaka.token());
+  expect(token, "snippet treba da dobije token od klaka-api").toMatch(/^klaka1\./);
 }
 
 async function clickVote(page: Page, comment: string, dir: "1" | "-1"): Promise<void> {
@@ -67,10 +67,10 @@ test("bot bez tokena: isti odgovor, glas ne ulazi u brojač", async ({ request }
 
 test("lažan token: isti odgovor, glas ne ulazi u brojač", async ({ request }) => {
   const before = await score(request, "c4");
-  const fake = `ppd1.dev-1.${"A".repeat(40)}.${"A".repeat(86)}`;
+  const fake = `klaka1.dev-1.${"A".repeat(40)}.${"A".repeat(86)}`;
   const res = await request.post("/api/vote", {
     data: { comment: "c4", dir: 1 },
-    headers: { "X-PPD-Token": fake },
+    headers: { "X-Klaka-Token": fake },
   });
 
   expect(await res.json()).toEqual({ ok: true });
@@ -88,6 +88,6 @@ test("isti token za drugi post se ne računa", async ({ page, request }) => {
   const { token } = (await other.json()) as { token: string };
   await page.waitForTimeout(2_500);
 
-  await request.post("/api/vote", { data: { comment: "c1", dir: 1 }, headers: { "X-PPD-Token": token } });
+  await request.post("/api/vote", { data: { comment: "c1", dir: 1 }, headers: { "X-Klaka-Token": token } });
   expect(await lastVote(request)).toMatchObject({ comment: "c1", token: "wrong_post", decision: "shadow" });
 });

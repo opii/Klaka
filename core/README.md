@@ -1,6 +1,6 @@
-# ppd-core
+# klaka-core
 
-Naš sistem, Rust (Cargo workspace): `ppd-core`, `ppd-collector`, `ppd-engine`, `ppd-llm`, `ppd-api`.
+Naš sistem, Rust (Cargo workspace): `klaka-core`, `klaka-collector`, `klaka-engine`, `klaka-llm`, `klaka-api`.
 Vidi `docs/tech_stack.md` §2–§3.
 
 ```

@@ -44,12 +44,12 @@ SHOULD / MAY u RFC 2119.
 - Sva vremena su **milisekunde od Unix epohe (UTC)**, celi brojevi, polje sa sufiksom `_ms`
   ili ime `t` / `iat`.
 - `vid` = 16 nasumičnih bajtova, base64url bez paddinga (22 znaka). Generiše ga **server**
-  (`ppd-api`) pri izdavanju tokena — nikad browser.
+  (`klaka-api`) pri izdavanju tokena — nikad browser.
 - base64url u celom protokolu: alfabet `A–Z a–z 0–9 - _`, **bez** `=`. Dekoderi MORAJU biti
   strogi (vidi `token.md` §4).
 
 ## Verzionisanje
 
-Verzija protokola je u prefiksu tokena (`ppd1`), u putanjama (`/v1/...`) i u polju `v`
+Verzija protokola je u prefiksu tokena (`klaka1`), u putanjama (`/v1/...`) i u polju `v`
 koverte događaja. Nekompatibilna izmena = nova verzija; stara se podržava paralelno dok je
 SDK-ovi ne napuste.

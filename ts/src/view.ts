@@ -1,7 +1,7 @@
-// Dohvatanje tokena pregleda sa ppd-api (core/spec/token.md §5).
+// Dohvatanje tokena pregleda sa klaka-api (core/spec/token.md §5).
 
 export interface Options {
-  /** Osnovni URL ppd-api, npr. `https://ppd.example.org`. */
+  /** Osnovni URL klaka-api, npr. `https://klaka.example.org`. */
   api: string;
   portal: string;
   post: string;

@@ -2,7 +2,7 @@
 
 Dva izvora, dva endpointa, ista koverta.
 
-| Izvor | Endpoint (`ppd-collector`) | Autentikacija | Poverenje |
+| Izvor | Endpoint (`klaka-collector`) | Autentikacija | Poverenje |
 | --- | --- | --- | --- |
 | browser (`ts/`) | `POST /v1/events` | nema (javno) | **nikakvo** — sve može biti lažno |
 | backend portala (SDK) | `POST /v1/ingest` | `Authorization: Bearer <portal_api_key>` | portal je pouzdan izvor za ono što je sam video (akcija, IP prefiks, odluka moderatora) |
@@ -129,6 +129,6 @@ Identitet moderatora se ne šalje.
 1. IP zahteva → prefiks (/24, /48) **pre** bilo kakvog upisa; pun IP se ne upisuje nigde,
    ni u logove.
 2. ASN i država se dodaju iz prefiksa (iptoasn) na collector-u, ne u SDK-u.
-3. Za `/v1/events`: `vid` koji `ppd-api` nije izdao se ne odbacuje nego **označava** — to je
+3. Za `/v1/events`: `vid` koji `klaka-api` nije izdao se ne odbacuje nego **označava** — to je
    signal, ne greška.
 4. Upis u PostgreSQL, u tabele particionisane po danu; retencija (dani) = brisanje starih particija.

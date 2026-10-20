@@ -1,10 +1,12 @@
 [package]
-name = "ppd-engine"
+name = "klaka-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-ppd-core.workspace = true
-ppd-llm.workspace = true
+base64.workspace = true
+ed25519-dalek.workspace = true
+serde.workspace = true
+serde_json.workspace = true

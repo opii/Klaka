@@ -1,13 +1,13 @@
 # Token pregleda — v1
 
 Token dokazuje da je pre akcije (glas, komentar) postojao **stvaran prikaz tog posta**, i
-kada. Izdaje ga `ppd-api`, proverava SDK na backendu portala.
+kada. Izdaje ga `klaka-api`, proverava SDK na backendu portala.
 
 ## 1. Zašto ne JWT
 
 JWT/JWS bi radio, ali: (a) zaglavlje `alg` je istorijski izvor napada (alg confusion,
 `none`); (b) za proveru bez zavisnosti u PHP/Go/Java/Node ionako pišemo svoj kod. Ovde je
-algoritam **fiksiran verzijom** (`ppd1` = Ed25519) i format ima četiri polja koja se mogu
+algoritam **fiksiran verzijom** (`klaka1` = Ed25519) i format ima četiri polja koja se mogu
 proveriti regex-om pre bilo kakvog dekodiranja.
 
 Ed25519 a ne HMAC: portal ima **samo javni ključ** — provala portala ne omogućava pravljenje
@@ -16,19 +16,19 @@ tokena. Sva četiri jezika SDK-a imaju Ed25519 u standardnoj biblioteci.
 ## 2. Format
 
 ```
-ppd1.<kid>.<payload>.<sig>
+klaka1.<kid>.<payload>.<sig>
 ```
 
 | Deo | Sadržaj | Ograničenje |
 | --- | --- | --- |
-| `ppd1` | verzija + algoritam (Ed25519) | doslovno |
+| `klaka1` | verzija + algoritam (Ed25519) | doslovno |
 | `kid` | ID ključa (rotacija) | `[a-z0-9-]{1,32}` |
 | `payload` | base64url(UTF-8 JSON objekat) | `[A-Za-z0-9_-]+` |
 | `sig` | base64url(Ed25519 potpis, 64 bajta) | tačno 86 znakova |
 
 Ceo token: najviše **1024 bajta**. Duži → `malformed` (bez dekodiranja).
 
-**Potpisana poruka** = ASCII bajtovi `ppd1.<kid>.<payload>` (sve pre treće tačke, tačno kako
+**Potpisana poruka** = ASCII bajtovi `klaka1.<kid>.<payload>` (sve pre treće tačke, tačno kako
 stoji u tokenu). Potpis pokriva bajtove, ne JSON vrednosti — nema kanonikalizacije JSON-a.
 
 ## 3. Payload
@@ -60,7 +60,7 @@ SDK-ovi davali isti rezultat za isti ulaz (test vektori to proveravaju).
 | # | Provera | Rezultat ako ne prođe |
 | --- | --- | --- |
 | 1 | token postoji i nije prazan string | `missing` |
-| 2 | dužina ≤ 1024 i ceo token odgovara regex-u `^ppd1\.[a-z0-9-]{1,32}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}$` | `malformed` |
+| 2 | dužina ≤ 1024 i ceo token odgovara regex-u `^klaka1\.[a-z0-9-]{1,32}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{86}$` | `malformed` |
 | 3 | `kid` postoji u konfiguraciji javnih ključeva | `unknown_key` |
 | 4 | `sig` je **kanonski** base64url zapis tačno 64 bajta i Ed25519 potpis nad potpisanom porukom je ispravan | `bad_signature` |
 | 5 | `payload` je **kanonski** base64url zapis validnog UTF-8 JSON **objekta** sa svim poljima iz §3 ispravnog tipa, `v == 1`, `vid` od 22 znaka base64url | `malformed` |
@@ -92,12 +92,12 @@ Napomene:
   izdavač, a on ga ne proizvodi. (JSON parseri se tu razlikuju — npr. Node ne razlikuje `1.0`
   od `1` — pa se na tome ne gradi usklađenost.)
 
-## 5. Izdavanje (`ppd-api`)
+## 5. Izdavanje (`klaka-api`)
 
 `POST /v1/view`, poziva ga `ts/` posle učitavanja stranice (ne u HTML-u — CDN keš).
 
 Zahtev: `{"portal":"demo.local","post":"p-1001"}`
-Odgovor: `{"token":"ppd1....","vid":"AAECAwQFBgcICQoLDA0ODw"}`
+Odgovor: `{"token":"klaka1....","vid":"AAECAwQFBgcICQoLDA0ODw"}`
 
 - `vid` generiše server (CSPRNG, 16 bajtova). `iat` = vreme servera.
 - Server ne potpisuje tokene za portal/post koji nisu registrovani. *(PoC: lista portala u
@@ -109,7 +109,7 @@ Odgovor: `{"token":"ppd1....","vid":"AAECAwQFBgcICQoLDA0ODw"}`
 Konfiguracija SDK-a sadrži **skup** javnih ključeva po `kid`. Rotacija: dodati novi ključ u
 konfiguraciju svih SDK-ova → izdavač prelazi na novi `kid` → posle `max_age_ms` ukloniti stari.
 
-Javni ključevi se objavljuju na `GET /v1/keys` (`ppd-api`):
+Javni ključevi se objavljuju na `GET /v1/keys` (`klaka-api`):
 
 ```json
 {"keys":{"dev-1":"IXm2RNB78zitajt40F6Wl__nHimoEd3C68xyOn74_Fk"}}
@@ -121,5 +121,5 @@ u konfiguraciji (pinovane), da kompromitovan ili lažiran odgovor ne podmetne tu
 ## 7. Test vektori
 
 [`test-vectors/token.json`](test-vectors/token.json). Test ključ (`kid` = `test-1`) je javno
-objavljen, sa seed-om, **samo za testove**; nikad u produkciji. Seed omogućava `ppd-core`-u da
+objavljen, sa seed-om, **samo za testove**; nikad u produkciji. Seed omogućava `klaka-core`-u da
 deterministički reprodukuje iste tokene (Ed25519 je deterministički).

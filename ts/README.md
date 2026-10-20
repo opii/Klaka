@@ -1,4 +1,4 @@
-# ppd-ts
+# klaka-ts
 
 Senzor u browseru, TypeScript bez runtime zavisnosti (budžet ≤ 8 KB gzip; trenutno < 1 KB).
 Vidi `docs/tech_stack.md` §5. **Ne odlučuje ništa i ne zna pragove** — napadač čita ovaj kod.
@@ -6,30 +6,30 @@ Vidi `docs/tech_stack.md` §5. **Ne odlučuje ništa i ne zna pragove** — napa
 ## Upotreba
 
 ```html
-<!-- posle učitavanja stranice uzima token sa ppd-api -->
-<script src="ppd.min.js" data-api="https://ppd.example.org"
+<!-- posle učitavanja stranice uzima token sa klaka-api -->
+<script src="klaka.min.js" data-api="https://klaka.example.org"
         data-portal="demo.local" data-post="p-1001" async></script>
 
-<!-- obična forma: token se sam upiše u polje ppd_token -->
+<!-- obična forma: token se sam upiše u polje klaka_token -->
 <form method="post" action="/vote">
-  <input type="hidden" name="ppd_token">
+  <input type="hidden" name="klaka_token">
   …
 </form>
 
 <script>
-  // ili fetch: zaglavlje X-PPD-Token
-  fetch("/vote", { method: "POST", headers: await ppd.headers(), body })
+  // ili fetch: zaglavlje X-Klaka-Token
+  fetch("/vote", { method: "POST", headers: await klaka.headers(), body })
 </script>
 ```
 
 | API | |
 | --- | --- |
-| `ppd.init({ api, portal, post, timeoutMs? })` | ručno pokretanje (ako nema `data-*` atributa) |
-| `ppd.token()` | `Promise<string \| null>` |
-| `ppd.headers()` | `{ "X-PPD-Token": … }` ili `{}` |
-| `ppd.fillForms(token, root?)` | za forme dodate posle učitavanja |
+| `klaka.init({ api, portal, post, timeoutMs? })` | ručno pokretanje (ako nema `data-*` atributa) |
+| `klaka.token()` | `Promise<string \| null>` |
+| `klaka.headers()` | `{ "X-Klaka-Token": … }` ili `{}` |
+| `klaka.fillForms(token, root?)` | za forme dodate posle učitavanja |
 
-Bez tokena (ppd-api nedostupan, tajmaut) stranica radi normalno; akcija kod SDK-a ide u shadow.
+Bez tokena (klaka-api nedostupan, tajmaut) stranica radi normalno; akcija kod SDK-a ide u shadow.
 
 ## Razvoj
 

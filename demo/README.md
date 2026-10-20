@@ -1,7 +1,7 @@
-# ppd-demo
+# klaka-demo
 
 Demo portal za proof of concept: jedan članak, komentari, glasanje. Node + TypeScript, bez
-framework-a (`node:http`). Koristi `@ppd/sdk-node` i snippet iz `ts/`.
+framework-a (`node:http`). Koristi `@klaka/sdk-node` i snippet iz `ts/`.
 
 ```bash
 docker compose up -d --build demo     # http://localhost:18082  (+ /admin)

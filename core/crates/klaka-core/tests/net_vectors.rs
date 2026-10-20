@@ -1,6 +1,6 @@
 //! Zajednički test vektori iz `core/spec/test-vectors/net.json`.
 
-use ppd_core::net::prefix_str;
+use klaka_core::net::prefix_str;
 use serde_json::Value;
 
 const VECTORS: &str = include_str!("../../../spec/test-vectors/net.json");

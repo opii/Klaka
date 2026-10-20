@@ -1,16 +1,16 @@
-# @ppd/sdk-node
+# @klaka/sdk-node
 
-PPD SDK za Node backend portala (proof of concept). Node 18+, TypeScript, **bez runtime
+Klaka SDK za Node backend portala (proof of concept). Node 18+, TypeScript, **bez runtime
 zavisnosti** — Ed25519 iz `node:crypto`. Ponašanje propisuje [`core/spec/`](../../core/spec/).
 
 ```ts
-import { TokenVerifier, parseVerdict, strongest, decide } from "@ppd/sdk-node";
+import { TokenVerifier, parseVerdict, strongest, decide } from "@klaka/sdk-node";
 
 const verifier = new TokenVerifier("demo.local", { "dev-1": "<javni ključ, base64url>" }, {
   minAgeMs: 2_000, maxAgeMs: 7_200_000, maxUses: 50,   // primer; stvarni pragovi dolaze iz core-a
 });
 
-let v = verifier.verify(req.headers["x-ppd-token"], postId, Date.now());   // koraci 1–9
+let v = verifier.verify(req.headers["x-klaka-token"], postId, Date.now());   // koraci 1–9
 v = verifier.checkUses(v, uses);                                            // korak 10
 const decision = decide(v.result, strongest([parseVerdict(raw, Date.now())])); // "count" | "shadow"
 ```

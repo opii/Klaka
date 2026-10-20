@@ -6,9 +6,9 @@ Presuda je most: engine je upiše u Valkey pod ključem koji SDK ume da izračun
 ## 1. Ključevi
 
 ```
-ppd:v1:<portal>:net:<prefiks>     npr. ppd:v1:demo.local:net:93.87.12.0/24
-ppd:v1:<portal>:vid:<vid>
-ppd:v1:<portal>:cid:<cid>         (samo ako portal koristi cid, events.md §3)
+klaka:v1:<portal>:net:<prefiks>     npr. klaka:v1:demo.local:net:93.87.12.0/24
+klaka:v1:<portal>:vid:<vid>
+klaka:v1:<portal>:cid:<cid>         (samo ako portal koristi cid, events.md §3)
 ```
 
 SDK čita sve ključeve koje ume da izračuna za akciju (jedan `MGET`) i primenjuje
@@ -29,7 +29,7 @@ SDK čita sve ključeve koje ume da izračuna za akciju (jedan `MGET`) i primenj
 Engine postavlja i Valkey TTL ≈ `until_ms`; `until_ms` je merodavan (satovi, kašnjenje brisanja).
 
 **Namerno nema:** razloga, skora, ID-a kohorte, dokaza. Valkey je kod portala i njegov sadržaj
-ne treba da otkriva logiku detekcije. Razlozi i dokazi su u `ppd-api` (red za pregled).
+ne treba da otkriva logiku detekcije. Razlozi i dokazi su u `klaka-api` (red za pregled).
 
 Nepoznata `action` → `none`. Neparsabilna vrednost → `none` + SDK beleži grešku.
 
@@ -38,9 +38,9 @@ Nepoznata `action` → `none`. Neparsabilna vrednost → `none` + SDK beleži gr
 Rezervisano za proof-of-work izazov (koncept §10 prethodnog predloga). **U v1 SDK tretira
 `challenge` kao `shadow`.**
 
-## 4. Pravila za engine (normativna za `ppd-engine`)
+## 4. Pravila za engine (normativna za `klaka-engine`)
 
 - Presuda po `net` prefiksu MORA biti potkrepljena bihevioralnim ili infrastrukturnim signalom,
   ne samo mrežom: mobilni CGNAT deli /24 sa hiljadama legitimnih korisnika.
 - Nijedna presuda zasnovana samo na geografiji ili samo na vremenu (koncept §8).
-- Svaka upisana presuda ima zapis u audit-u (`ppd-api`, PostgreSQL) sa dokazima u tom trenutku.
+- Svaka upisana presuda ima zapis u audit-u (`klaka-api`, PostgreSQL) sa dokazima u tom trenutku.
