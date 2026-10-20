@@ -154,7 +154,7 @@ sdk/                     SDK-ovi za backend portala
   java/                                              → repo klaka-sdk-java
 ts/                      klijentska biblioteka (browser), TypeScript → repo klaka-ts
 demo/                    demo portal (Node, TypeScript) — PoC i e2e test celog lanca
-caci/                    emulator ćacija (Node, TypeScript, Playwright) — testiranje detekcije
+caci/                    emulator klake: poslušnici u tri uloge (Node, TypeScript, Playwright) — testiranje detekcije
 docs/                    zajednička dokumentacija (ostaje u korenu)
 ```
 
@@ -189,11 +189,13 @@ Zašto podela pri objavljivanju, a ne ranije — registri i poddirektorijumi:
 
 ---
 
-## 8. Emulator ćacija (`caci/`)
+## 8. Emulator klake — `caci/`
 
-**Ćaci** je zli ljudski bot — pojedinačni akter klake. Emulator je referentni protivnik za
-testiranje detekcije u zatvorenom Docker Compose okruženju, bez živih portala. Igra ćacije na nivoima od sirove
-skripte do ljudi u smenama, paralelno pušta legitimnu publiku i daje ground truth za odziv, lažne pozitive i simetriju po stranama.
+Članovi klake su poslušnici: **pojačivači** (guraju), **razvodnjivači** (gase temu) i
+**ćaci** (zli ljudski bot — toksičan poslušnik). Emulator je referentni protivnik za testiranje detekcije u
+zatvorenom Docker Compose okruženju, bez živih portala. Igra sve tri uloge na nivoima od sirove
+skripte do ljudi u smenama, paralelno pušta legitimnu publiku i daje ground truth za odziv,
+lažne pozitive i simetriju po stranama.
 
 - **Tehnologija:** TypeScript/Node + Playwright (alat, ne deo našeg sistema — Rust ograničenje
   se ne odnosi na njega).

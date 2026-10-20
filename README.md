@@ -24,10 +24,12 @@ bolje sakrije), nego se njen aplauz **ne računa**. Glas koji sistem oceni kao d
 akcije čuva se i prikazuje onome ko ga je dao, ali ne ulazi u javni zbir (`shadow`, vidi
 [`core/spec/sdk.md`](core/spec/sdk.md)).
 
-Pojedinačni akter klake u ovom projektu ima ime: **ćaci** — zli ljudski bot. Čovek koji se na
-internetu ponaša kao bot: zlonameran i destruktivan, suprotnost konstruktivnom i društvenom
-učesniku rasprave; poslušan, moralno potkupljiv, glasa i komentariše po naređenju.
-Ćaci se definiše ponašanjem, ne stranom. Vidi [`docs/caci.md`](docs/caci.md).
+Članovi klake su **poslušnici**: glasaju i komentarišu po naređenju, za sitnu korist. Imaju tri
+uloge: **pojačivači** guraju (hvale, prave utisak većine), **razvodnjivači** gase vruću temu
+gomilom praznih komentara, a **ćaci** ruše — ćaci je zli ljudski bot: toksičan poslušnik,
+zlonameran i destruktivan, suprotnost konstruktivnom i društvenom učesniku rasprave. Sve
+uloge se definišu ponašanjem, ne stranom, i hvataju se po koordinaciji, ne po sadržaju.
+Vidi [`docs/caci.md`](docs/caci.md).
 
 ## Pokretanje
 
