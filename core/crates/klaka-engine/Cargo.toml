@@ -7,4 +7,9 @@ publish.workspace = true
 
 [dependencies]
 klaka-core.workspace = true
+klaka-db.workspace = true
 klaka-llm.workspace = true
+redis.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true

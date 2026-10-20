@@ -105,13 +105,13 @@ services:
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
 
+  # Detektori za sada ne koriste LLM, pa engine ne čeka preuzimanje modela (ollama-pull).
   klaka-engine:
     <<: *core
     command: ["klaka-engine"]
-    depends_on:
-      postgres: { condition: service_healthy }
-      valkey: { condition: service_healthy }
-      ollama-pull: { condition: service_completed_successfully }
+    environment:
+      <<: *core-env
+      KLAKA_ENGINE_INTERVAL_S: ${KLAKA_ENGINE_INTERVAL_S:-5}
 
   # --- demo portal (demo/) --------------------------------------------------
 
