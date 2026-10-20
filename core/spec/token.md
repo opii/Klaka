@@ -109,6 +109,15 @@ Odgovor: `{"token":"ppd1....","vid":"AAECAwQFBgcICQoLDA0ODw"}`
 Konfiguracija SDK-a sadrži **skup** javnih ključeva po `kid`. Rotacija: dodati novi ključ u
 konfiguraciju svih SDK-ova → izdavač prelazi na novi `kid` → posle `max_age_ms` ukloniti stari.
 
+Javni ključevi se objavljuju na `GET /v1/keys` (`ppd-api`):
+
+```json
+{"keys":{"dev-1":"IXm2RNB78zitajt40F6Wl__nHimoEd3C68xyOn74_Fk"}}
+```
+
+Javni ključ nije tajna. SDK MOŽE da ih učita odatle pri startu; u produkciji TREBA da ih ima
+u konfiguraciji (pinovane), da kompromitovan ili lažiran odgovor ne podmetne tuđi ključ.
+
 ## 7. Test vektori
 
 [`test-vectors/token.json`](test-vectors/token.json). Test ključ (`kid` = `test-1`) je javno

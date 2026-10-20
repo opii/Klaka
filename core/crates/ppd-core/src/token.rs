@@ -258,7 +258,8 @@ fn decode_canonical(s: &str) -> Option<Vec<u8>> {
     URL_SAFE_NO_PAD.decode(s).ok()
 }
 
-fn valid_kid(kid: &str) -> bool {
+/// `kid` po spec-u: `[a-z0-9-]{1,32}`.
+pub fn valid_kid(kid: &str) -> bool {
     (1..=KID_MAX_LEN).contains(&kid.len())
         && kid
             .bytes()

@@ -10,17 +10,19 @@
 
 name: ppd
 
+x-core-env: &core-env
+  PPD_POSTGRES_URL: postgres://${POSTGRES_USER:-ppd}:${POSTGRES_PASSWORD:-ppd-dev}@postgres:5432/${POSTGRES_DB:-ppd}
+  PPD_VALKEY_URL: redis://valkey:6379/0
+  PPD_OLLAMA_URL: http://ollama:11434
+  PPD_LLM_MODEL: ${PPD_LLM_MODEL:-gemma3:4b}
+  PPD_EMBED_MODEL: ${PPD_EMBED_MODEL:-bge-m3}
+
 x-core: &core
   image: ppd-core:dev
   build:
     context: ./core
   restart: "no"
-  environment:
-    PPD_POSTGRES_URL: postgres://${POSTGRES_USER:-ppd}:${POSTGRES_PASSWORD:-ppd-dev}@postgres:5432/${POSTGRES_DB:-ppd}
-    PPD_VALKEY_URL: redis://valkey:6379/0
-    PPD_OLLAMA_URL: http://ollama:11434
-    PPD_LLM_MODEL: ${PPD_LLM_MODEL:-gemma3:4b}
-    PPD_EMBED_MODEL: ${PPD_EMBED_MODEL:-bge-m3}
+  environment: *core-env
   depends_on:
     postgres: { condition: service_healthy }
     valkey: { condition: service_healthy }
@@ -88,6 +90,11 @@ services:
     <<: *core
     command: ["ppd-api"]
     ports: ["127.0.0.1:${API_PORT:-18081}:8081"]
+    environment:
+      <<: *core-env
+      PPD_PORTALS: ${PPD_PORTALS:-demo.local}
+      PPD_SIGNING_KID: ${PPD_SIGNING_KID:-dev-1}
+      PPD_SIGNING_SEED: ${PPD_SIGNING_SEED:-}
 
   ppd-engine:
     <<: *core
