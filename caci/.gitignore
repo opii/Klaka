@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Dnevnici izvođenja (ground truth) — lokalno.
+runs/

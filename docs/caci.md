@@ -60,7 +60,8 @@ koordinisane glasove i komentare sa poznatim obeležjima, a paralelno pušta i l
 publiku. Pošto zna šta je sam uradio, daje **čist ground truth** za merenje — ono što pravi
 saobraćaj nikad ne daje (koncept §6, treći izvor oznaka).
 
-Status: plan; prva verzija pokriva nivoe 0–2 (ispod).
+Status: nivoi 0–1 rade (uloge koje glasaju, ogledalo, čitaoci, izveštaj); nivo 2 i
+razvodnjivači slede.
 
 ### 2.1. Ogledalo
 

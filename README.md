@@ -1,3 +1,4 @@
+| [`caci/`](caci/) | emulator klake: poslušnici protiv demo portala, legitimna publika, izveštaj iz baze |
 # Klaka
 
 Detekcija koordinisanih napada (glasovi, komentari) na portalima — isključivo iz podataka
@@ -40,6 +41,7 @@ docker compose up -d --wait                  # PostgreSQL (+pgvector), Valkey, O
 docker compose run --rm rust cargo check     # Rust alati za core/
 docker compose run --rm node npm run build   # Node alati za ts/
 docker compose run --rm e2e                  # test celog lanca u pravom browseru (Playwright)
+docker compose run --rm caci run profiles/rafal-0.json   # emulator klake protiv demo portala
 ```
 
 Prvo pokretanje preuzima Ollama modele (nekoliko GB). Podešavanja (lozinke, portovi na hostu,

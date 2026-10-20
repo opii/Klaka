@@ -1,0 +1,13 @@
+{
+  "name": "rafal-0",
+  "level": 0,
+  "roles": { "amplifier": 6, "caci": 3 },
+  "votes": 10,
+  "targets": { "push": ["c1"], "sink": ["c2"] },
+  "mirror": true,
+  "window_s": 10,
+  "prefixes": 1,
+  "delay_ms": { "median": 300, "sigma": 0.5 },
+  "token_wait_ms": 0,
+  "audience": { "readers": 40, "read_ms": { "median": 6000, "sigma": 0.6 }, "vote_p": 0.6 }
+}

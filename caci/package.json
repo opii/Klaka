@@ -1,0 +1,20 @@
+{
+  "name": "klaka-caci",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Emulator klake: poslušnici (pojačivači, ćaci) protiv demo portala, uz legitimnu publiku i izveštaj iz baze.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "tsc -p . && node --test \"dist/test/**/*.test.js\""
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.6.0"
+  }
+}

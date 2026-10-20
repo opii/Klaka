@@ -1,0 +1,56 @@
+// Emulator klake (docs/caci.md).
+//
+//   caci run <profil.json>     kampanja + publika, dnevnik u runs/<run>.json, pa izveštaj
+//   caci report <run>          izveštaj za ranije izvođenje
+//
+// Okruženje:
+//   CACI_PORTAL_URL    demo portal            (http://demo:3000)
+//   CACI_API_URL       klaka-api              (http://klaka-api:8081)
+//   CACI_PORTAL        portal                 (demo.local)
+//   CACI_POST          post                   (p-1001)
+//   CACI_POSTGRES_URL  baza sa događajima; bez nje nema izveštaja
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+
+import { parseProfile } from "./profile.js";
+import { format, loadVotes, summarize } from "./report.js";
+import { run, type RunLog } from "./run.js";
+
+const env = process.env;
+const RUNS = "runs";
+// Demo šalje događaje u pozadini (~1 s); malo rezerve pre čitanja baze.
+const SETTLE_MS = 3_000;
+
+async function main([cmd, arg]: string[]): Promise<void> {
+  if (cmd === "run" && arg) {
+    const profile = parseProfile(JSON.parse(await readFile(arg, "utf8")));
+    const log = await run(profile, {
+      portalUrl: (env.CACI_PORTAL_URL ?? "http://demo:3000").replace(/\/+$/, ""),
+      apiUrl: (env.CACI_API_URL ?? "http://klaka-api:8081").replace(/\/+$/, ""),
+      portal: env.CACI_PORTAL ?? "demo.local",
+      post: env.CACI_POST ?? "p-1001",
+    });
+    await mkdir(RUNS, { recursive: true });
+    await writeFile(`${RUNS}/${log.run}.json`, JSON.stringify(log, null, 1));
+    const failed = log.actions.filter((a) => a.status !== 200).length;
+    console.log(`run ${log.run}: ${log.actions.length} glasova${failed ? `, ${failed} bez odgovora 200` : ""}`);
+    await new Promise((r) => setTimeout(r, SETTLE_MS));
+    return report(log);
+  }
+  if (cmd === "report" && arg) {
+    return report(JSON.parse(await readFile(`${RUNS}/${arg}.json`, "utf8")) as RunLog);
+  }
+  console.error("upotreba: caci run <profil.json> | caci report <run>");
+  process.exitCode = 2;
+}
+
+async function report(log: RunLog): Promise<void> {
+  const url = env.CACI_POSTGRES_URL;
+  if (!url) {
+    console.log("CACI_POSTGRES_URL nije postavljen — bez izveštaja");
+    return;
+  }
+  console.log(format(log, summarize(log, await loadVotes(url, log))));
+}
+
+await main(process.argv.slice(2));
