@@ -6,9 +6,12 @@
   "type": "module",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --minify --format=iife --global-name=ppd --target=es2017 --outfile=dist/ppd.min.js && esbuild src/index.ts --bundle --format=esm --target=es2017 --outfile=dist/ppd.esm.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "esbuild test/*.test.ts --bundle --platform=node --format=esm --outdir=dist-test --log-level=warning && node --test \"dist-test/*.test.js\"",
+    "size": "gzip -9c dist/ppd.min.js | wc -c"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "esbuild": "^0.25.0",
     "typescript": "^5.6.0"
   }
