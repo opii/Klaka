@@ -8,7 +8,6 @@
 //   CACI_API_URL       klaka-api              (http://klaka-api:8081)
 //   CACI_COLLECTOR_URL klaka-collector        (http://klaka-collector:8080)
 //   CACI_PORTAL        portal                 (demo.local)
-//   CACI_POST          post                   (p-1001)
 //   CACI_POSTGRES_URL  baza sa događajima; bez nje nema izveštaja
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -35,7 +34,6 @@ async function main([cmd, arg]: string[]): Promise<void> {
         apiUrl: (env.CACI_API_URL ?? "http://klaka-api:8081").replace(/\/+$/, ""),
         collectorUrl: (env.CACI_COLLECTOR_URL ?? "http://klaka-collector:8080").replace(/\/+$/, ""),
         portal,
-        post: env.CACI_POST ?? "p-1001",
       },
       avoid,
     );

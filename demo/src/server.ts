@@ -1,4 +1,4 @@
-// Demo portal: jedan članak, komentari, glasanje. Bez framework-a, samo node:http.
+// Demo portal: nekoliko članaka, komentari, glasanje. Bez framework-a, samo node:http.
 //
 // Okruženje:
 //   PORT                 (3000)
@@ -14,18 +14,19 @@
 //                            x-forwarded-for, važi poslednja vrednost). SAMO za test okruženje:
 //                            ovako emulator ćacija (caci/) dodeljuje adrese.
 
+import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 
 import { EventSender, Klaka, type Policy } from "@klaka/sdk-node";
 
-import { adminPage, articlePage, type Comment, type VoteLog } from "./page.js";
+import { POSTS, SEED_COMMENTS } from "./content.js";
+import { adminPage, articlePage, homePage, type Comment, type VoteLog } from "./page.js";
 import { valkeyStore } from "./valkey.js";
 
 const env = process.env;
 const PORT = Number(env.PORT ?? 3000);
 const PORTAL = env.KLAKA_PORTAL ?? "demo.local";
-const POST = "p-1001";
 const API = (env.KLAKA_API_URL ?? "http://localhost:18081").replace(/\/+$/, "");
 const API_PUBLIC = env.KLAKA_API_PUBLIC_URL ?? API;
 const COLLECTOR_PUBLIC = env.KLAKA_COLLECTOR_PUBLIC_URL ?? "";
@@ -34,7 +35,11 @@ const POLICY: Policy = {
   maxAgeMs: Number(env.KLAKA_MAX_AGE_MS ?? 7_200_000),
   maxUses: Number(env.KLAKA_MAX_USES ?? 50),
 };
-const MAX_BODY = 4 * 1024;
+const MAX_BODY = 16 * 1024;
+const MAX_AUTHOR = 40;
+const MAX_TEXT = 2_000;
+// Kolačić posetioca: po njemu autor vidi svoje shadow komentare. Pravi portal ima nalog ili sesiju.
+const SID = "demo_sid";
 const IP_HEADER = env.KLAKA_CLIENT_IP_HEADER?.toLowerCase() || null;
 
 const events =
@@ -45,13 +50,15 @@ const store = env.KLAKA_VALKEY_URL ? await valkeyStore(env.KLAKA_VALKEY_URL) : n
 
 const snippet = readSnippet(env.KLAKA_SNIPPET ?? "../ts/dist/klaka.min.js");
 
-const comments: Comment[] = [
-  { id: "c1", author: "Milica", text: "Konačno! Staza je bila u očajnom stanju.", score: 0 },
-  { id: "c2", author: "Dragan", text: "Klupe su lepe, ali ko će održavati rasvetu?", score: 0 },
-  { id: "c3", author: "Jelena", text: "Ograđen prostor za pse bi rešio dosta sukoba.", score: 0 },
-  { id: "c4", author: "Stefan", text: "Nadam se da radovi neće trajati do leta.", score: 0 },
-];
+const started = Date.now();
+const comments: Comment[] = SEED_COMMENTS.map((c) => ({
+  ...c, score: 0, t: started, decision: "count", owner: null, token: null,
+}));
+let nextComment = comments.length + 1;
 const votes: VoteLog[] = [];
+
+/** Javni komentari i `shadow` komentari ovog posetioca. */
+const visible = (c: Comment, sid: string | null) => c.decision === "count" || (sid !== null && c.owner === sid);
 
 // Ključevi se učitavaju sa klaka-api (spec token.md §6: MOŽE za razvoj; produkcija ih pinuje)
 // i osvežavaju, jer klaka-api bez KLAKA_SIGNING_SEED pravi nov ključ pri svakom startu.
@@ -77,26 +84,62 @@ async function refreshKeys(): Promise<void> {
 
 async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req);
-  const comment = comments.find((c) => c.id === body?.comment);
+  const sid = cookie(req, SID);
+  // Komentar koji posetilac ne vidi (tuđ shadow) ne postoji za njega.
+  const comment = comments.find((c) => c.id === body?.comment && visible(c, sid));
   const dir = body?.dir;
   if (!comment || (dir !== 1 && dir !== -1)) return send(res, 400, "application/json", '{"ok":false}');
 
-  const header = req.headers["x-klaka-token"];
-  const token = Array.isArray(header) ? header[0] : header;
   const now = Date.now();
-
   // Bez ključeva (klaka-api nedostupan pri startu) nijedan token ne može da se proveri.
   const r = klaka
-    ? await klaka.onVote(
-        { token, ip: clientIp(req), ua: req.headers["user-agent"] },
-        { post: POST, target: comment.id, targetAuthor: comment.author, dir },
-      )
+    ? await klaka.onVote(clientRequest(req), { post: comment.post, target: comment.id, targetAuthor: comment.author, dir })
     : { decision: "shadow" as const, vid: null, token: "unknown_key" as const, uses: null, repeat: null };
   if (r.decision === "count") comment.score += dir;
-  votes.push({ t: now, comment: comment.id, dir, vid: r.vid, token: r.token, uses: r.uses, repeat: r.repeat, decision: r.decision });
+  votes.push({
+    t: now, post: comment.post, comment: comment.id, dir, vid: r.vid, token: r.token, uses: r.uses, repeat: r.repeat,
+    decision: r.decision,
+  });
 
   // Isti odgovor za count i shadow (spec README, princip 3).
   send(res, 200, "application/json", '{"ok":true}');
+}
+
+async function comment(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const body = await readJson(req);
+  const post = POSTS.find((p) => p.id === body?.post);
+  const author = typeof body?.author === "string" ? body.author.trim() : "";
+  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  if (!post || !author || author.length > MAX_AUTHOR || !text || text.length > MAX_TEXT) {
+    return send(res, 400, "application/json", '{"ok":false}');
+  }
+  const headers: Record<string, string> = {};
+  const sid = cookie(req, SID) ?? newSid(headers);
+  const id = `c${nextComment++}`;
+  const r = klaka
+    ? await klaka.onComment(clientRequest(req), { post: post.id, comment: id, author, text, replyTo: null })
+    : { decision: "shadow" as const, token: "unknown_key" as const };
+  comments.push({ id, post: post.id, author, text, score: 0, t: Date.now(), decision: r.decision, owner: sid, token: r.token });
+
+  // Isti odgovor za count i shadow: autor svoj komentar vidi u oba slučaja.
+  send(res, 200, "application/json", JSON.stringify({ ok: true, id }), headers);
+}
+
+function article(req: IncomingMessage, res: ServerResponse, id: string): void {
+  const post = POSTS.find((p) => p.id === id);
+  if (!post) return send(res, 404, "text/plain", "nema");
+  const headers: Record<string, string> = {};
+  const sid = cookie(req, SID) ?? newSid(headers);
+  const list = comments.filter((c) => c.post === post.id && visible(c, sid));
+  send(res, 200, "text/html; charset=utf-8",
+    articlePage({ apiPublic: API_PUBLIC, collectorPublic: COLLECTOR_PUBLIC, portal: PORTAL, post, comments: list }), headers);
+}
+
+function publicComments(req: IncomingMessage, post: string | null): object[] {
+  const sid = cookie(req, SID);
+  return comments
+    .filter((c) => (post === null || c.post === post) && visible(c, sid))
+    .map(({ id, post, author, text, score }) => ({ id, post, author, text, score }));
 }
 
 const server = createServer((req, res) => {
@@ -104,20 +147,29 @@ const server = createServer((req, res) => {
   const route = `${req.method} ${url.pathname}`;
   Promise.resolve()
     .then(() => {
+      if (req.method === "GET" && url.pathname.startsWith("/p/")) return article(req, res, url.pathname.slice(3));
       switch (route) {
         case "GET /":
-          return send(res, 200, "text/html; charset=utf-8",
-            articlePage({ apiPublic: API_PUBLIC, collectorPublic: COLLECTOR_PUBLIC, portal: PORTAL, post: POST, comments }));
+          return send(res, 200, "text/html; charset=utf-8", homePage({
+            portal: PORTAL,
+            posts: POSTS.map((post) => ({ post, comments: comments.filter((c) => c.post === post.id && c.decision === "count").length })),
+          }));
         case "GET /klaka.min.js":
           return send(res, 200, "text/javascript; charset=utf-8", snippet);
         case "POST /api/vote":
           return vote(req, res);
+        case "POST /api/comment":
+          return comment(req, res);
+        case "GET /api/posts":
+          return send(res, 200, "application/json", JSON.stringify(POSTS.map(({ id, title }) => ({ id, title }))));
         case "GET /api/comments":
-          return send(res, 200, "application/json", JSON.stringify(comments));
+          return send(res, 200, "application/json", JSON.stringify(publicComments(req, url.searchParams.get("post"))));
         case "GET /admin":
           return send(res, 200, "text/html; charset=utf-8", adminPage(votes, comments));
         case "GET /admin/votes.json":
           return send(res, 200, "application/json", JSON.stringify(votes));
+        case "GET /admin/comments.json":
+          return send(res, 200, "application/json", JSON.stringify(comments));
         case "GET /healthz":
           return send(res, 200, "text/plain", "ok");
         default:
@@ -130,6 +182,26 @@ const server = createServer((req, res) => {
     });
 });
 
+function clientRequest(req: IncomingMessage) {
+  const header = req.headers["x-klaka-token"];
+  return { token: Array.isArray(header) ? header[0] : header, ip: clientIp(req), ua: req.headers["user-agent"] };
+}
+
+function cookie(req: IncomingMessage, name: string): string | null {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const [k, v] = part.trim().split("=", 2);
+    if (k === name && v && /^[\w-]{16,64}$/.test(v)) return v;
+  }
+  return null;
+}
+
+/** Nov kolačić posetioca; `Set-Cookie` ide u `headers` odgovora. */
+function newSid(headers: Record<string, string>): string {
+  const sid = randomBytes(16).toString("base64url");
+  headers["Set-Cookie"] = `${SID}=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`;
+  return sid;
+}
+
 /** IP klijenta: iz zaglavlja pouzdanog proxy-ja (poslednja vrednost) ako je podešeno, inače TCP veza. */
 function clientIp(req: IncomingMessage): string {
   const raw = IP_HEADER ? req.headers[IP_HEADER] : undefined;
@@ -138,8 +210,8 @@ function clientIp(req: IncomingMessage): string {
   return last || req.socket.remoteAddress || "";
 }
 
-function send(res: ServerResponse, status: number, type: string, body: string): void {
-  res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store" });
+function send(res: ServerResponse, status: number, type: string, body: string, headers: Record<string, string> = {}): void {
+  res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", ...headers });
   res.end(body);
 }
 
@@ -170,10 +242,12 @@ function readSnippet(path: string): string {
 
 await refreshKeys();
 setInterval(refreshKeys, 15_000).unref();
-events?.send({
-  type: "post", t: Date.now(), post: POST, rev: 1, url: `https://${PORTAL}/`,
-  title: "Park kod reke dobija novu stazu i klupe do proleća", section: "grad",
-});
+for (const p of POSTS) {
+  events?.send({
+    type: "post", t: Date.now(), post: p.id, rev: 1, url: `https://${PORTAL}/p/${p.id}`,
+    title: p.title, section: p.section, body: p.paragraphs.join("\n\n"),
+  });
+}
 server.listen(PORT, () =>
   console.log(`demo portal na :${PORT} (klaka-api: ${API}, browser: ${API_PUBLIC}, događaji: ${events ? "da" : "ne"})`),
 );

@@ -16,7 +16,7 @@ test("view odmah posle tokena, engage sa skrolovanjem i viđenim komentarima", a
     }
   });
   await page.setViewportSize({ width: 1000, height: 400 });
-  await page.goto("/");
+  await page.goto("/p/p-1001");
   await page.evaluate(async () => (window as unknown as { klaka: { token(): Promise<string> } }).klaka.token());
 
   await expect.poll(() => events.find((e) => e.type === "view")).toBeTruthy();

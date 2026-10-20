@@ -13,7 +13,9 @@ docker compose run --rm -w /work/caci node npm test            # testovi
 Ova verzija: nivoi 0 (bez tokena), 1 (token uzet direktno sa `/v1/view`) i 2–3 (pravi
 Chromium preko Playwright-a), uloge koje glasaju (pojačivač, ćaci), ogledalo (strane A i B),
 čitaoci i CGNAT blizanac (mnogo čitalaca iza jednog prefiksa). Čitaoci rade što i pravi
-browser sa snippetom: šalju `view` i `engage` collector-u. Razvodnjivači i nivo 4 slede (traže komentare i više postova u demo-u).
+browser sa snippetom: pročitaju 1–3 članka i za svaki šalju `view` i `engage` collector-u.
+Ciljevi (`targets`) su ID-jevi komentara, sa bilo kog članka; emulator sam nalazi članak.
+Razvodnjivači i nivo 4 slede.
 
 Adrese su iz `198.18.0.0/15` (RFC 2544) i stižu do demo-a, `klaka-api`-ja i collector-a preko
 `X-Forwarded-For` — oni mu veruju **samo u test okruženju**. Prefiksi sa važećom presudom iz

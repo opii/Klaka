@@ -45,6 +45,17 @@ export interface VoteResult {
   action: Action;
 }
 
+export interface CommentInput {
+  post: string;
+  /** ID komentara u sistemu portala (portal ga pravi pre poziva). */
+  comment: string;
+  author: string;
+  text: string;
+  replyTo: string | null;
+}
+
+export type CommentResult = Omit<VoteResult, "repeat">;
+
 interface State {
   uses: number | null;
   repeat: boolean | null;
@@ -95,8 +106,34 @@ export class Klaka {
     return { decision, vid, token: v.result, uses: state.uses, repeat: state.repeat, action: state.action };
   }
 
-  /** Koraci 2–3 u jednom krugu do Valkey-ja, u budžetu; svaki kvar je „nedostupan" (fail-open). */
-  async #state(vid: string | null, target: string, net: string | null): Promise<State> {
+  /**
+   * Komentar: isti tok kao glas, bez pravila jednog glasa po cilju (§2a). `shadow` komentar
+   * portal čuva i prikazuje samo autoru; odgovor je isti kao za `count`.
+   */
+  async onComment(req: ClientRequest, c: CommentInput): Promise<CommentResult> {
+    const now = this.#now();
+    let v = this.#verifier.verify(req.token, c.post, now);
+    const vid = v.payload?.vid ?? null;
+    const net = netPrefix(req.ip);
+
+    const state = await this.#state(vid, null, net);
+    if (state.uses !== null) v = this.#verifier.checkUses(v, state.uses);
+    const decision = decide(v.result, state.action);
+
+    if (this.#cfg.events && net) {
+      this.#cfg.events.send({
+        type: "comment", t: now, post: c.post, vid, token: v.result, uses: state.uses, decision, net,
+        ua: truncateUa(req.ua), comment: c.comment, author: c.author, text: c.text, reply_to: c.replyTo,
+      });
+    }
+    return { decision, vid, token: v.result, uses: state.uses, action: state.action };
+  }
+
+  /**
+   * Koraci 2–3 u jednom krugu do Valkey-ja, u budžetu; svaki kvar je „nedostupan" (fail-open).
+   * `target` samo za glas (ponovljen glas, §2a).
+   */
+  async #state(vid: string | null, target: string | null, net: string | null): Promise<State> {
     const store = this.#cfg.store;
     if (!store) return UNAVAILABLE;
     const ttl = this.#verifier.policy.maxAgeMs;
@@ -105,7 +142,7 @@ export class Klaka {
     );
     const work = Promise.all([
       vid ? store.incr(`${this.#prefix}uses:${vid}`, ttl) : null,
-      vid ? store.setNx(`${this.#prefix}voted:${vid}:${target}`, ttl) : null,
+      vid && target !== null ? store.setNx(`${this.#prefix}voted:${vid}:${target}`, ttl) : null,
       verdictKeys.length ? store.mget(verdictKeys) : [],
     ]).then(([uses, first, verdicts]): State => {
       const now = this.#now();

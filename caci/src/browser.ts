@@ -5,7 +5,7 @@
 import type { Browser, BrowserContext, Page } from "playwright-core";
 
 import { sample, type Profile } from "./profile.js";
-import type { Action, Actor, Target } from "./run.js";
+import type { Action, Actor, PortalComment, Target } from "./run.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -16,7 +16,7 @@ interface Klaka {
 }
 
 export async function browserOperative(
-  p: Profile, target: Target, a: Actor, goals: string[], dir: 1 | -1, log: Action[], browser: Browser,
+  p: Profile, target: Target, a: Actor, goals: PortalComment[], dir: 1 | -1, log: Action[], browser: Browser,
 ): Promise<void> {
   const careful = p.level === 3;
   const click = careful || p.browser?.click === true;
@@ -46,10 +46,11 @@ export async function browserOperative(
 }
 
 async function castVote(
-  page: Page, p: Profile, target: Target, a: Actor, comment: string, dir: 1 | -1, log: Action[],
+  page: Page, p: Profile, target: Target, a: Actor, goal: PortalComment, dir: 1 | -1, log: Action[],
   how: { click: boolean; careful: boolean },
 ): Promise<void> {
-  await page.goto(target.portalUrl + "/");
+  const comment = goal.id;
+  await page.goto(`${target.portalUrl}/p/${goal.post}`);
   const token = await page.evaluate(() => (window as unknown as { klaka: Klaka }).klaka.token());
   await sleep(p.token_wait_ms);
 
@@ -80,7 +81,7 @@ async function castVote(
   await page.evaluate(() => (window as unknown as { klaka: Klaka }).klaka.flush());
   log.push({
     t, role: a.role, side: a.side, level: p.level, actor: a.id, net: a.net,
-    vid: token ? vidOf(token) : null, target: comment, dir, status,
+    vid: token ? vidOf(token) : null, post: goal.post, target: comment, dir, status,
   });
 }
 

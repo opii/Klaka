@@ -21,7 +21,7 @@ async function lastVote(request: APIRequestContext): Promise<Vote> {
 
 /** Učitava članak i čeka da snippet dobije token od klaka-api. */
 async function openArticle(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("/p/p-1001");
   const token = await page.evaluate(async () => (window as unknown as { klaka: { token(): Promise<string | null> } }).klaka.token());
   expect(token, "snippet treba da dobije token od klaka-api").toMatch(/^klaka1\./);
 }

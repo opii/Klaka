@@ -12,7 +12,7 @@ import type { Action, RunLog } from "../src/run.js";
 function action(over: Partial<Action>): Action {
   return {
     t: 1_000, role: "amplifier", side: "A", level: 0, actor: "A-amplifier-0", net: "198.18.1.0/24",
-    vid: null, target: "c1", dir: 1, status: 200, ...over,
+    vid: null, post: "p-1001", target: "c1", dir: 1, status: 200, ...over,
   };
 }
 

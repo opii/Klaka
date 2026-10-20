@@ -54,7 +54,7 @@ modeli): kopirati `.env.example` u `.env`.
 | [`core/`](core/) | naš sistem (Rust) + [`spec/`](core/spec/) protokola + test vektori |
 | [`sdk/`](sdk/) | SDK-ovi za backend portala: `node/` (PoC), `php/`, `go/`, `java/` |
 | [`ts/`](ts/) | klijentska biblioteka za browser (TypeScript) |
-| [`demo/`](demo/) | demo portal (Node, TypeScript): članak, komentari, glasanje — ceo lanac na http://localhost:18082 |
+| [`demo/`](demo/) | demo portal (Node, TypeScript): članci, komentari, glasanje — ceo lanac na http://localhost:18082 |
 | [`docs/`](docs/) | koncept, tech stack |
 | [`caci/`](caci/) | emulator klake: poslušnici protiv demo portala, legitimna publika, izveštaj iz baze |
 

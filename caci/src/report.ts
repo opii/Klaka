@@ -104,8 +104,8 @@ export async function loadVotes(url: string, log: RunLog): Promise<StoredVote[]>
               data->>'token' AS token, data->>'decision' AS decision,
               (data->>'repeat')::boolean AS repeat
        FROM events
-       WHERE type = 'vote' AND portal = $1 AND post = $2 AND t BETWEEN $3 AND $4`,
-      [log.portal, log.post, log.started_ms - MATCH_WINDOW_MS, log.ended_ms + MATCH_WINDOW_MS],
+       WHERE type = 'vote' AND portal = $1 AND t BETWEEN $2 AND $3`,
+      [log.portal, log.started_ms - MATCH_WINDOW_MS, log.ended_ms + MATCH_WINDOW_MS],
     );
     return res.rows.map((r) => ({ ...r, t: Number(r.t), dir: r.dir === -1 ? -1 : 1 }));
   } finally {

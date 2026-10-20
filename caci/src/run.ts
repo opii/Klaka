@@ -14,6 +14,11 @@ export interface Target {
   apiUrl: string;
   collectorUrl: string;
   portal: string;
+}
+
+/** Javni komentar portala; `post` je članak na kome stoji. */
+export interface PortalComment {
+  id: string;
   post: string;
 }
 
@@ -25,6 +30,7 @@ export interface Action {
   actor: string;
   net: string;
   vid: string | null;
+  post: string;
   target: string;
   dir: 1 | -1;
   status: number;
@@ -34,7 +40,6 @@ export interface RunLog {
   run: string;
   profile: Profile;
   portal: string;
-  post: string;
   started_ms: number;
   ended_ms: number;
   actions: Action[];
@@ -62,6 +67,10 @@ export async function run(profile: Profile, target: Target, avoid: ReadonlySet<s
   const started = Date.now();
 
   const comments = await fetchComments(target);
+  const postOf = new Map(comments.map((c) => [c.id, c.post]));
+  for (const id of [...profile.targets.push, ...profile.targets.sink]) {
+    if (!postOf.has(id)) throw new Error(`cilj ${id} nije javni komentar na portalu`);
+  }
   const sides: Side[] = profile.mirror ? ["A", "B"] : ["A"];
   const tasks: Promise<void>[] = [];
 
@@ -81,8 +90,9 @@ export async function run(profile: Profile, target: Target, avoid: ReadonlySet<s
         tasks.push(
           (async () => {
             await sleep(Math.random() * profile.window_s * 1000);
-            if (browser) await browserOperative(profile, target, actor, goals, dir, actions, browser);
-            else await operative(profile, target, actor, goals, dir, actions);
+            const plan = goals.map((id) => ({ id, post: postOf.get(id)! }));
+            if (browser) await browserOperative(profile, target, actor, plan, dir, actions, browser);
+            else await operative(profile, target, actor, plan, dir, actions);
           })(),
         );
       }
@@ -112,7 +122,7 @@ export async function run(profile: Profile, target: Target, avoid: ReadonlySet<s
   } finally {
     await browser?.close();
   }
-  return { run: runId, profile, portal: target.portal, post: target.post, started_ms: started, ended_ms: Date.now(), actions };
+  return { run: runId, profile, portal: target.portal, started_ms: started, ended_ms: Date.now(), actions };
 }
 
 export interface Actor {
@@ -126,46 +136,57 @@ export interface Actor {
 }
 
 /**
- * Poslušnik. Nivo 0: bez tokena. Nivo 1: jedan token za ceo zadatak, ili (`token_per_vote`)
- * po jedan nov prikaz za svaki glas — svi uzeti odjednom, pa iskorišćeni kad „sazru".
+ * Poslušnik. Nivo 0: bez tokena. Nivo 1: jedan token po postu za ceo zadatak, ili
+ * (`token_per_vote`) po jedan nov prikaz za svaki glas — svi uzeti odjednom, pa iskorišćeni
+ * kad „sazru".
  */
 async function operative(
-  p: Profile, target: Target, a: Actor, goals: string[], dir: 1 | -1, log: Action[],
+  p: Profile, target: Target, a: Actor, goals: PortalComment[], dir: 1 | -1, log: Action[],
 ): Promise<void> {
-  let tokens: (Token | null)[] = Array<Token | null>(p.votes).fill(null);
+  const plan = Array.from({ length: p.votes }, (_, n) => goals[n % goals.length]!);
+  let tokens: (Token | null)[] = plan.map(() => null);
   if (p.level === 1) {
     if (p.token_per_vote) {
-      tokens = await Promise.all(tokens.map(() => view(target, a)));
+      tokens = await Promise.all(plan.map((g) => view(target, a, g.post)));
     } else {
-      tokens.fill(await view(target, a));
+      const perPost = new Map<string, Token | null>();
+      for (const post of new Set(plan.map((g) => g.post))) perPost.set(post, await view(target, a, post));
+      tokens = plan.map((g) => perPost.get(g.post)!);
     }
     await sleep(p.token_wait_ms);
   }
-  for (let n = 0; n < p.votes; n++) {
-    await vote(target, a, goals[n % goals.length]!, dir, tokens[n]!, log);
+  for (let n = 0; n < plan.length; n++) {
+    await vote(target, a, plan[n]!, dir, tokens[n]!, log);
     await sleep(sample(p.delay_ms));
   }
 }
 
+/** Koliko članaka pročita jedan čitalac: 1–3, najčešće jedan. */
+const READER_POSTS = [1, 1, 1, 2, 2, 3];
+
 /**
- * Čitalac: radi ono što radi pravi browser sa snippetom — uzme token, pošalje `view`, čita,
- * pošalje `engage` (skrolovao je, video komentare) i ponekad glasa.
+ * Čitalac: radi ono što radi pravi browser sa snippetom — za svaki članak koji pročita uzme
+ * token, pošalje `view`, čita, pošalje `engage` (skrolovao je, video komentare) i ponekad glasa.
  */
-async function read(p: Profile, target: Target, a: Actor, comments: string[], log: Action[]): Promise<void> {
-  const token = await view(target, a);
-  if (token) await browserEvent(target, a, viewEvent(token, target));
-  const readMs = sample(p.audience.read_ms);
-  await sleep(readMs);
-  const choice = pick(comments);
-  if (token) await browserEvent(target, a, engageEvent(token, readMs, comments, choice));
-  if (Math.random() < p.audience.vote_p) {
-    await vote(target, a, choice, Math.random() < 0.7 ? 1 : -1, token, log);
+async function read(p: Profile, target: Target, a: Actor, comments: PortalComment[], log: Action[]): Promise<void> {
+  const posts = [...new Set(comments.map((c) => c.post))].sort(() => Math.random() - 0.5);
+  for (const post of posts.slice(0, pick(READER_POSTS))) {
+    const here = comments.filter((c) => c.post === post);
+    const token = await view(target, a, post);
+    if (token) await browserEvent(target, a, viewEvent(token, post));
+    const readMs = sample(p.audience.read_ms);
+    await sleep(readMs);
+    const choice = pick(here);
+    if (token) await browserEvent(target, a, engageEvent(token, readMs, here.map((c) => c.id), choice.id));
+    if (Math.random() < p.audience.vote_p) {
+      await vote(target, a, choice, Math.random() < 0.7 ? 1 : -1, token, log);
+    }
   }
 }
 
-function viewEvent(tok: Token, target: Target): Record<string, unknown> {
+function viewEvent(tok: Token, post: string): Record<string, unknown> {
   return {
-    type: "view", vid: tok.vid, t: Date.now(), post: target.post, ref: pick([null, "https://www.google.com/"]),
+    type: "view", vid: tok.vid, t: Date.now(), post, ref: pick([null, "https://www.google.com/"]),
     variant: null, lang: pick(["en-US", "de-DE", "fr-FR"]), tz_min: 60, vp: pick([[1300, 700], [400, 800], [1900, 1000]]),
     auto: 0,
   };
@@ -201,17 +222,17 @@ interface Token {
   vid: string;
 }
 
-async function view(target: Target, a: Actor): Promise<Token | null> {
+async function view(target: Target, a: Actor, post: string): Promise<Token | null> {
   const res = await fetch(`${target.apiUrl}/v1/view`, {
     method: "POST",
     headers: { "Content-Type": "text/plain", "X-Forwarded-For": a.ip },
-    body: JSON.stringify({ portal: target.portal, post: target.post }),
+    body: JSON.stringify({ portal: target.portal, post }),
   });
   return res.ok ? ((await res.json()) as Token) : null;
 }
 
 async function vote(
-  target: Target, a: Actor, comment: string, dir: 1 | -1, token: Token | null, log: Action[],
+  target: Target, a: Actor, comment: PortalComment, dir: 1 | -1, token: Token | null, log: Action[],
 ): Promise<void> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -223,7 +244,7 @@ async function vote(
   let status = 0;
   try {
     const res = await fetch(`${target.portalUrl}/api/vote`, {
-      method: "POST", headers, body: JSON.stringify({ comment, dir }),
+      method: "POST", headers, body: JSON.stringify({ comment: comment.id, dir }),
     });
     status = res.status;
     await res.body?.cancel();
@@ -232,12 +253,12 @@ async function vote(
   }
   log.push({
     t, role: a.role, side: a.side, level: a.level, actor: a.id, net: a.net,
-    vid: token?.vid ?? null, target: comment, dir, status,
+    vid: token?.vid ?? null, post: comment.post, target: comment.id, dir, status,
   });
 }
 
-async function fetchComments(target: Target): Promise<string[]> {
+async function fetchComments(target: Target): Promise<PortalComment[]> {
   const res = await fetch(`${target.portalUrl}/api/comments`);
   if (!res.ok) throw new Error(`portal ${target.portalUrl}: HTTP ${res.status}`);
-  return ((await res.json()) as { id: string }[]).map((c) => c.id);
+  return ((await res.json()) as PortalComment[]).map(({ id, post }) => ({ id, post }));
 }

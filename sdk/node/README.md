@@ -19,12 +19,16 @@ const { decision } = await klaka.onVote(
   { post: postId, target: commentId, targetAuthor: author, dir },
 );
 if (decision === "count") score += dir;   // "shadow": sačuvaj, prikaži samo glasaču, ne računaj
+
+// Komentar: ID pravi portal pre poziva; "shadow" komentar vidi samo njegov autor.
+const c = await klaka.onComment(request, { post: postId, comment: id, author, text, replyTo: null });
 ```
 
 Portal korisniku vraća **isti odgovor** za `count` i `shadow` (spec README, princip 3).
 
 `onVote` radi ceo tok iz `sdk.md` §2: token, brojač upotreba prikaza, jedan glas po (`vid`,
-cilj) (§2a), presude, odluka, pa događaj collector-u u pozadini. Valkey ima budžet od 20 ms;
+cilj) (§2a), presude, odluka, pa događaj collector-u u pozadini. `onComment` je isti tok, bez
+pravila jednog glasa po cilju. Valkey ima budžet od 20 ms;
 ako ne odgovori ili ne postoji, odluka je samo po tokenu (fail-open za presude).
 
 **Valkey** se daje kao `Store` sa tri operacije, da SDK ostane bez runtime zavisnosti.
@@ -44,7 +48,7 @@ Delovi su dostupni i pojedinačno (`TokenVerifier`, `parseVerdict`, `strongest`,
 
 | Gotovo | Sledi |
 | --- | --- |
-| provera tokena (34/34 zajedničkih vektora), `onVote` sa Valkey-jem (upotrebe, ponovljen glas, presude), slanje događaja | `onComment`, `onModeration`, `onPost`, `onPromotion` (`sdk.md` §1) |
+| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), slanje događaja | `onModeration`, `onPost`, `onPromotion` (`sdk.md` §1) |
 
 ```bash
 docker compose run --rm -w /work/sdk/node node npm test   # iz korena repoa

@@ -1,4 +1,5 @@
-// Tok glasa (core/spec/sdk.md §2, §2a): token, brojač upotreba, ponovljen glas, presude, otkazi.
+// Tok glasa i komentara (core/spec/sdk.md §2, §2a): token, brojač upotreba, ponovljen glas,
+// presude, otkazi.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -101,4 +102,22 @@ test("pun IP ne ide u događaj; neispravan IP → bez događaja", async () => {
   assert.equal(sent.length, 1);
   assert.equal(sent[0]!.type === "vote" && sent[0]!.net, "2a02:8109:1234::/48");
   assert.ok(!JSON.stringify(sent).includes("5678"));
+});
+
+test("komentar: isti tok kao glas, bez pravila ponovljenog glasa; brojač upotreba je zajednički", async () => {
+  const store = new MemoryStore(() => NOW);
+  const { klaka, sent } = setup(store);
+  const comment = (id: string) => ({ post: POST, comment: id, author: "Ana", text: "Tekst.", replyTo: null });
+  await klaka.onVote(req(), vote("c1"));
+  const first = await klaka.onComment(req(), comment("k1"));
+  assert.deepEqual(first, { decision: "count", vid: VID, token: "valid", uses: 2, action: "none" });
+  assert.equal((await klaka.onComment(req(), comment("k2"))).decision, "count", "drugi komentar istog prikaza");
+  assert.deepEqual(sent.at(-1), {
+    type: "comment", t: NOW, post: POST, vid: VID, token: "valid", uses: 3, decision: "count",
+    net: "93.87.12.0/24", ua: "UA", comment: "k2", author: "Ana", text: "Tekst.", reply_to: null,
+  });
+
+  store.set("klaka:v1:demo.local:net:93.87.12.0/24", JSON.stringify({ action: "shadow", until_ms: NOW + 1 }), 60_000);
+  assert.equal((await klaka.onComment(req(), comment("k3"))).decision, "shadow", "presuda važi i za komentare");
+  assert.equal((await klaka.onComment(req(null), comment("k4"))).token, "missing");
 });
