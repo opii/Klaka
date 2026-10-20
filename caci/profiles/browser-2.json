@@ -1,0 +1,14 @@
+{
+  "name": "browser-2",
+  "level": 2,
+  "roles": { "amplifier": 6, "caci": 3 },
+  "votes": 10,
+  "targets": { "push": ["c1", "c3"], "sink": ["c2"] },
+  "mirror": true,
+  "window_s": 10,
+  "prefixes": 2,
+  "delay_ms": { "median": 800, "sigma": 0.4 },
+  "token_wait_ms": 2500,
+  "token_per_vote": true,
+  "audience": { "readers": 40, "cgnat": 20, "read_ms": { "median": 6000, "sigma": 0.6 }, "vote_p": 0.6 }
+}

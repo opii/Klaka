@@ -3,6 +3,9 @@
 
 import { randomBytes } from "node:crypto";
 
+import { chromium } from "playwright-core";
+
+import { browserOperative } from "./browser.js";
 import { Prefixes } from "./net.js";
 import { sample, type Level, type Profile, type Role, type Side } from "./profile.js";
 
@@ -54,6 +57,8 @@ export async function run(profile: Profile, target: Target, avoid: ReadonlySet<s
   const runId = `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${randomBytes(3).toString("hex")}`;
   const actions: Action[] = [];
   const nets = new Prefixes(Math.random, avoid);
+  // Nivoi 2–3: jedan Chromium, poseban kontekst (kolačići, adresa) po poslušniku.
+  const browser = profile.level >= 2 ? await chromium.launch() : null;
   const started = Date.now();
 
   const comments = await fetchComments(target);
@@ -76,7 +81,8 @@ export async function run(profile: Profile, target: Target, avoid: ReadonlySet<s
         tasks.push(
           (async () => {
             await sleep(Math.random() * profile.window_s * 1000);
-            await operative(profile, target, actor, goals, dir, actions);
+            if (browser) await browserOperative(profile, target, actor, goals, dir, actions, browser);
+            else await operative(profile, target, actor, goals, dir, actions);
           })(),
         );
       }
@@ -101,11 +107,15 @@ export async function run(profile: Profile, target: Target, avoid: ReadonlySet<s
     );
   }
 
-  await Promise.all(tasks);
+  try {
+    await Promise.all(tasks);
+  } finally {
+    await browser?.close();
+  }
   return { run: runId, profile, portal: target.portal, post: target.post, started_ms: started, ended_ms: Date.now(), actions };
 }
 
-interface Actor {
+export interface Actor {
   id: string;
   role: Role | "reader" | "cgnat";
   side: Side | null;

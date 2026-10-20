@@ -154,17 +154,22 @@ services:
     command: ["sh", "-c", "npm ci --no-audit --no-fund && npx playwright test"]
 
   # Emulator klake (caci/, docs/caci.md): docker compose run --rm caci run profiles/rafal-0.json
+  # Mreža hosta, kao e2e: browser (nivoi 2+) vidi iste adrese kao korisnik — snippet na
+  # stranici zove klaka-api i collector na localhost portovima.
   caci:
     profiles: [tools]
     <<: *dev-user
-    image: node:22-bookworm-slim
+    image: mcr.microsoft.com/playwright:v1.64.1-noble
+    network_mode: host
     working_dir: /work/caci
     volumes: [".:/work"]
     environment:
       npm_config_cache: /work/.npm-docker
-      CACI_PORTAL_URL: http://demo:3000
-      CACI_API_URL: http://klaka-api:8081
-      CACI_POSTGRES_URL: postgres://${POSTGRES_USER:-klaka}:${POSTGRES_PASSWORD:-klaka-dev}@postgres:5432/${POSTGRES_DB:-klaka}
+      HOME: /tmp
+      CACI_PORTAL_URL: http://localhost:${DEMO_PORT:-18082}
+      CACI_API_URL: http://localhost:${API_PORT:-18081}
+      CACI_COLLECTOR_URL: http://localhost:${COLLECTOR_PORT:-18080}
+      CACI_POSTGRES_URL: postgres://${POSTGRES_USER:-klaka}:${POSTGRES_PASSWORD:-klaka-dev}@localhost:${POSTGRES_PORT:-15432}/${POSTGRES_DB:-klaka}
     entrypoint: ["sh", "-c", "npm ci --no-audit --no-fund --silent && npm run -s build && node dist/src/index.js \"$$@\"", "caci"]
     depends_on:
       demo: { condition: service_started }

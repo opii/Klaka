@@ -1,6 +1,6 @@
 // Profil kampanje (docs/caci.md §5). Ova verzija ume nivoe 0–1 i uloge koje glasaju.
 
-export type Level = 0 | 1;
+export type Level = 0 | 1 | 2 | 3;
 export type Role = "amplifier" | "caci";
 export type Side = "A" | "B";
 
@@ -24,6 +24,13 @@ export interface Profile {
   token_wait_ms: number;
   /** Nivo 1: nov token (nov prikaz) za svaki glas, uzet unapred — umesto jednog za ceo zadatak. */
   token_per_vote: boolean;
+  /**
+   * Nivoi 2–3 (pravi browser, svaki glas = novo učitavanje stranice). Nivo 2: `click` — glas
+   * klikom na dugme umesto `fetch`-a iz konzole; `hide_webdriver` — sakriva `navigator.webdriver`.
+   * Nivo 3 uvek klikće i sakriva, a pre klika skroluje do komentara i zadrži se `dwell_ms`.
+   */
+  browser?: { click?: boolean; hide_webdriver?: boolean };
+  dwell_ms?: LogNormal;
   audience: {
     readers: number;
     /** Legitimni blizanac: još ovoliko čitalaca, svi iza jednog prefiksa (CGNAT, firma). */
@@ -47,7 +54,8 @@ export function parseProfile(raw: unknown): Profile {
   };
   if (typeof p !== "object" || p === null) fail("očekivan JSON objekat");
   if (typeof p.name !== "string" || !p.name) fail("name");
-  if (p.level !== 0 && p.level !== 1) fail("level: ova verzija ume 0 i 1");
+  if (![0, 1, 2, 3].includes(p.level)) fail("level: 0–3");
+  if (p.dwell_ms) checkLogNormal(p.dwell_ms, "dwell_ms", fail);
   for (const [role, n] of Object.entries(p.roles ?? {})) {
     if (role !== "amplifier" && role !== "caci") fail(`roles: nepoznata uloga ${role}`);
     if (!Number.isInteger(n) || n < 0) fail(`roles.${role}`);
