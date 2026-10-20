@@ -61,7 +61,8 @@ publiku. Pošto zna šta je sam uradio, daje **čist ground truth** za merenje �
 saobraćaj nikad ne daje (koncept §6, treći izvor oznaka).
 
 Status: nivoi 0–3 rade (uloge koje glasaju, ogledalo, čitaoci, CGNAT blizanac, izveštaj sa
-presudama engine-a); nivo 3 detektori još ne hvataju; nivo 4 i razvodnjivači slede.
+presudama engine-a). Nivo 3 engine hvata kad kampanja ide kroz više postova (usmereni glasovi),
+a kampanju na jednom postu ne hvata; nivo 4 i razvodnjivači slede.
 
 ### 2.1. Ogledalo
 
@@ -90,8 +91,10 @@ Merimo koliko glasova svaki nivo progura u javni zbir.
 | 3 | pažljiv browser | čita, skroluje, glasa samo za vidljive komentare, nasumična kašnjenja | pojedinačno čist — vidi se tek u kohorti (ponavljanje kroz postove, zajednički prefiks, isti ciljevi) |
 | 4 | smena poslušnika | nivo 3 + raspored smena, rotacija pseudonima, šablonski komentari i parafraze (lokalni LLM) | graf kohorte, ritam smena (change-point), šabloni (MinHash, embeddings) |
 
-Nivoe 0–2 hvata ono što postoji danas (token, `shadow`). Nivoi 3–4 su posao engine-a i služe
-kao njegov test pre nego što radi na pravom portalu.
+Nivoe 0–1 hvata token, nivo 2 bihevioralni detektori engine-a (prikazi-duhovi, nečitani glasovi).
+Nivo 3 hvata detektor usmerenih glasova: isti prefiks, isti autor komentara i smer, kroz više
+postova, mnogo češće nego organska publika. Kampanja na jednom postu ostaje ispod praga — pravilo
+preseka traži više postova (koncept §2a). Nivo 4 je sledeći test engine-a pre pravog portala.
 
 ---
 

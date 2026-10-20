@@ -33,7 +33,8 @@ zbira i rezultati tokena; zatim presude engine-a — kada su nastale i koga su p
 | `svez-token-1.json` | nov prikaz za svaki glas: token ispravan, glas nije ponovljen. Bez engine-a **0% `shadow`**, pomeraj +120/−60 po strani. Sa engine-om (detektor prikaza-duhova): presude na sva 4 prefiksa kohorte posle ~11 s, `shadow` 82–85%, pomeraj +19..22/−9..10; čitaoci i CGNAT blizanac 0% |
 | `browser-2.json` | nivo 2: pravi Chromium, svaki glas novo učitavanje stranice (pravi `view`/`engage`), glas iz konzole. Prolazi detektor duhova; detektor nečitanih glasova ga hvata (nema unosa): presude za 14–19 s, `shadow` 70–77%; čitaoci i CGNAT 0% |
 | `browser-2-klik.json` | nivo 2 sa klikom i sakrivenim `webdriver`-om: klik daje unos, ali komentar nije bio u `seen` (Playwright skroluje i odmah klikne): presude za 12–22 s, `shadow` 53–77%; čitaoci i CGNAT 0% |
-| `pazljiv-3.json` | nivo 3: skroluje do komentara, zadrži se, pa klikne — **nije uhvaćen** (0%). Granica signala čitanja: ostaju ponavljanje kohorte kroz postove, ritam i iste mete |
+| `pazljiv-3.json` | nivo 3: skroluje do komentara, zadrži se, pa klikne — **nije uhvaćen** (0%). Granica signala čitanja; kampanja je na jednom postu, a pravilo preseka traži više |
+| `pazljiv-3-postovi.json` | isti nivo 3, ali gura i potiskuje iste autore kroz 3 posta. Detektor usmerenih glasova: presude na sva 4 prefiksa kohorte za 19–26 s, `shadow` 67–75%, pomeraj +15..19/−8..10 po strani (bez njega +60/−30); čitaoci i CGNAT bez presude |
 
 Pokretati sa `--no-deps` posle build-a slike `klaka-core`: inače `docker compose run` ponovo
 podigne `klaka-api` sa novim (privremenim) ključem, a demo ga preuzme tek posle do 15 s —

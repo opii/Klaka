@@ -75,7 +75,7 @@ test("adrese: svaki /24 jednom, u 198.18.0.0/15", () => {
 });
 
 test("profili iz repoa su ispravni", () => {
-  for (const f of ["rafal-0", "token-1", "svez-token-1", "browser-2", "browser-2-klik", "pazljiv-3"]) {
+  for (const f of ["rafal-0", "token-1", "svez-token-1", "browser-2", "browser-2-klik", "pazljiv-3", "pazljiv-3-postovi"]) {
     const p = parseProfile(JSON.parse(readFileSync(new URL(`../../profiles/${f}.json`, import.meta.url), "utf8")));
     assert.equal(p.name, f);
   }

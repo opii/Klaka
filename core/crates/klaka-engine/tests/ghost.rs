@@ -1,11 +1,12 @@
-//! Detektor prikaza-duhova na pravoj bazi (i Valkey-ju, ako je dat). Radi samo uz
+//! Detektori na pravoj bazi (i presuda u Valkey-ju, ako je dat). Radi samo uz
 //! `KLAKA_TEST_POSTGRES_URL` (+ opciono `KLAKA_TEST_VALKEY_URL`); svaki test ima svoju šemu.
 
 use std::time::Duration;
 
 use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
 use klaka_engine::{
-    Config, GHOST_VIEWS, NetVerdict, ghost_cohorts, issue_net_shadow, net_key, unread_cohorts,
+    Config, GHOST_VIEWS, NetVerdict, focused_cohorts, ghost_cohorts, issue_net_shadow, net_key,
+    unread_cohorts,
 };
 use serde_json::json;
 use sqlx::PgPool;
@@ -17,6 +18,9 @@ fn cfg() -> Config {
         min_votes: 5,
         min_vids: 3,
         min_flagged_share: 0.8,
+        min_posts: 2,
+        min_lift: 3.0,
+        max_p_value: 1e-4,
         ttl: Duration::from_secs(3600),
     }
 }
@@ -210,6 +214,85 @@ async fn unread_votes_found_readers_and_ghosts_not() {
         found
             .iter()
             .all(|c| c.detector == "unread-votes" && c.flagged == 6)
+    );
+
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+/// `n` glasova iz `net` za komentare autora u smeru `dir`, svaki sa svog prikaza, raspoređenih
+/// po `posts` postova; `seq` je redni broj prvog glasa (za prikaz i post).
+async fn author_votes(
+    store: &PgStore,
+    net: &str,
+    (author, dir): (&str, i32),
+    n: usize,
+    posts: usize,
+    seq: usize,
+) {
+    let rows = (seq..seq + n)
+        .map(|i| Row {
+            kind: "vote",
+            t: 1,
+            vid: Some(format!("{net}-{author}-{dir}-{i}")),
+            post: Some(format!("p-{}", i % posts)),
+            net: Some(net.to_owned()),
+            data: json!({
+                "type": "vote", "target": format!("c-{author}-{}", i % posts),
+                "target_author": author, "dir": dir,
+            }),
+        })
+        .collect();
+    store
+        .insert(Batch {
+            portal: "demo.local".into(),
+            source: Source::Server,
+            rows,
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn focused_votes_found_across_posts_twins_not() {
+    let Some((admin, pool, schema)) = schema("focused").await else {
+        return;
+    };
+    let store = PgStore(pool.clone());
+    // Publika: 48 čitalaca, svaki iza svog prefiksa, raspršeno po 8 autora.
+    let audience = |i: usize| (format!("a{}", i % 8), if (i / 8) % 3 < 2 { 1 } else { -1 });
+    for i in 0..48 {
+        let (author, dir) = audience(i);
+        let net = format!("10.1.{i}.0/24");
+        author_votes(&store, &net, (&author, dir), 1, 1, 0).await;
+    }
+    // CGNAT: 48 glasova iza jednog prefiksa, raspoređenih kao publika, na 3 posta — svaka
+    // ćelija ima ≥ 5 glasova, ≥ 3 prikaza i ≥ 2 posta, pa odlučuje samo odnos prema publici.
+    for i in 0..48 {
+        let (author, dir) = audience(i);
+        author_votes(&store, "198.18.2.0/24", (&author, dir), 1, 3, i).await;
+    }
+    author_votes(&store, "198.18.1.0/24", ("a0", 1), 20, 3, 0).await; // kohorta kroz 3 posta
+    author_votes(&store, "198.18.1.0/24", ("a1", -1), 6, 3, 0).await;
+    author_votes(&store, "198.18.3.0/24", ("a0", 1), 20, 1, 0).await; // ista, na jednom postu
+
+    let found = focused_cohorts(&pool, &cfg()).await.unwrap();
+    let got: Vec<_> = found
+        .iter()
+        .map(|f| (f.cell.net.as_str(), f.cell.author.as_str(), f.cell.dir))
+        .collect();
+    assert_eq!(got, [("198.18.1.0/24", "a0", 1)], "{found:?}");
+    assert_eq!(
+        (
+            found[0].cell.votes,
+            found[0].cell.vids,
+            found[0].cell.posts,
+            found[0].net_votes
+        ),
+        (20, 20, 3, 26)
     );
 
     pool.close().await;

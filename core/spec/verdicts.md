@@ -40,7 +40,9 @@ Rezervisano za proof-of-work izazov. **U v1 SDK tretira
 
 ## 4. Pravila za engine (normativna za `klaka-engine`)
 
-- Presuda po `net` prefiksu MORA biti potkrepljena bihevioralnim ili infrastrukturnim signalom,
-  ne samo mrežom: mobilni CGNAT deli /24 sa hiljadama legitimnih korisnika.
+- Presuda po `net` prefiksu MORA biti potkrepljena još bar jednom nezavisnom dimenzijom, ne
+  samo mrežom: mobilni CGNAT deli /24 sa hiljadama legitimnih korisnika. Dovoljan je
+  bihevioralni ili infrastrukturni signal; ciljni (iste mete) samo ako se ponavlja na više
+  postova i odstupa od organske publike (koncept §2a, pravilo preseka).
 - Nijedna presuda zasnovana samo na geografiji ili samo na vremenu (koncept §8).
 - Svaka upisana presuda ima zapis u audit-u (`klaka-api`, PostgreSQL) sa dokazima u tom trenutku.
