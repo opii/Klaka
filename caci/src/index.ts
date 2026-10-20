@@ -9,7 +9,7 @@
 //   CACI_COLLECTOR_URL klaka-collector        (http://klaka-collector:8080)
 //   CACI_PORTAL        portal                 (demo.local)
 //   CACI_POSTGRES_URL  baza sa događajima; bez nje nema izveštaja
-//   CACI_OLLAMA_URL, CACI_LLM_MODEL   parafraze za nivo 4 (http://ollama:11434, gemma3:4b)
+//   CACI_OLLAMA_URL, CACI_LLM_MODEL   parafraze (nivo 4) i komentari publike (http://ollama:11434, gemma3:4b)
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
@@ -32,11 +32,12 @@ async function main([cmd, arg]: string[]): Promise<void> {
     const portal = env.CACI_PORTAL ?? "demo.local";
     // Prefiksi sa važećom presudom iz ranijih izvođenja bi novo izvođenje „nasledilo".
     const avoid = env.CACI_POSTGRES_URL ? await activeVerdictNets(env.CACI_POSTGRES_URL, portal) : new Set<string>();
-    let paraphraser;
-    if (profile.paraphrase) {
-      paraphraser = ollama(env.CACI_OLLAMA_URL ?? "http://ollama:11434", env.CACI_LLM_MODEL ?? "gemma3:4b");
-      await paraphraser.check();
-      console.log("parafraze šablona (lokalni LLM)…");
+    // Lokalni LLM: parafraze šablona (nivo 4) i komentari publike o člancima.
+    let writer;
+    if (profile.paraphrase || (profile.audience.comment_p ?? 0) > 0) {
+      writer = ollama(env.CACI_OLLAMA_URL ?? "http://ollama:11434", env.CACI_LLM_MODEL ?? "gemma3:4b");
+      await writer.check();
+      console.log("tekstovi pre početka (lokalni LLM)…");
     }
     const log = await run(
       profile,
@@ -47,7 +48,7 @@ async function main([cmd, arg]: string[]): Promise<void> {
         portal,
       },
       avoid,
-      paraphraser,
+      writer,
     );
     await mkdir(RUNS, { recursive: true });
     await writeFile(`${RUNS}/${log.run}.json`, JSON.stringify(log, null, 1));

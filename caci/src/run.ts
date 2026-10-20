@@ -8,7 +8,7 @@ import { chromium } from "playwright-core";
 import { browserOperative } from "./browser.js";
 import { Prefixes } from "./net.js";
 import { ROLES, sample, schedule, type Level, type Profile, type Role, type Side } from "./profile.js";
-import { pseudonym, readerComment, templated, TEMPLATES, type Paraphraser } from "./texts.js";
+import { PERSONAS, pseudonym, templated, TEMPLATES, type Paraphraser, type Writer } from "./texts.js";
 
 export interface Target {
   portalUrl: string;
@@ -74,6 +74,8 @@ export interface Ctx {
   log: RunLog;
   /** Komentari razvodnjivača po strani — za njih glasaju ostali razvodnjivači te strane. */
   fellows: Map<Side, PortalComment[]>;
+  /** Komentari publike po članku, pripremljeni unapred; svaki se koristi jednom. */
+  readerTexts: Map<string, string[]>;
 }
 
 /** Zadatak poslušnika: glas za (ili protiv) komentara, ili komentar na članku. */
@@ -96,13 +98,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)]!;
 
 export async function run(
-  profile: Profile, target: Target, avoid: ReadonlySet<string> = new Set(), paraphraser?: Paraphraser,
+  profile: Profile, target: Target, avoid: ReadonlySet<string> = new Set(), writer?: Writer,
 ): Promise<RunLog> {
   const runId = `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${randomBytes(3).toString("hex")}`;
   const log: RunLog = {
     run: runId, profile, portal: target.portal, started_ms: 0, ended_ms: 0, actions: [], comments: [], skipped: 0,
   };
-  const ctx: Ctx = { profile, target, log, fellows: new Map() };
+  const ctx: Ctx = { profile, target, log, fellows: new Map(), readerTexts: new Map() };
   const nets = new Prefixes(Math.random, avoid);
   const comments = await fetchComments(target);
   const postOf = new Map(comments.map((c) => [c.id, c.post]));
@@ -115,7 +117,8 @@ export async function run(
   }
   const sides: Side[] = profile.mirror ? ["A", "B"] : ["A"];
   // Tekstovi se spremaju pre početka — kao spisak koji poslušnici dobiju za smenu.
-  const texts = await prepareTexts(profile, sides.length, log, paraphraser);
+  const texts = await prepareTexts(profile, sides.length, log, writer);
+  ctx.readerTexts = await prepareReaderTexts(profile, target, [...posts], writer);
 
   // Nivoi 2–4: jedan Chromium, poseban kontekst (kolačići, adresa) po poslušniku.
   const browser = profile.level >= 2 ? await chromium.launch() : null;
@@ -205,6 +208,36 @@ export function operativePlan(
       kind, post: commentPosts[(index + n) % commentPosts.length]!, text: texts[n]!, author: names[n % names.length]!,
     };
   });
+}
+
+/** Prosečan broj članaka koje pročita jedan čitalac (`READER_POSTS`). */
+const READER_POSTS_MEAN = 5 / 3;
+const READER_BATCH = 6;
+
+/** Komentari publike po članku, sa rezervom za slučajno više komentara od očekivanog. */
+async function prepareReaderTexts(
+  p: Profile, target: Target, posts: string[], writer?: Writer,
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const share = p.audience.comment_p ?? 0;
+  if (share === 0) return out;
+  if (!writer) throw new Error("komentari publike traže Ollama (CACI_OLLAMA_URL)");
+  const res = await fetch(`${target.portalUrl}/api/posts`);
+  const titles = new Map(((await res.json()) as { id: string; title: string }[]).map((x) => [x.id, x.title]));
+  const readers = p.audience.readers + (p.audience.cgnat ?? 0);
+  const need = Math.ceil(((readers * READER_POSTS_MEAN) / posts.length) * share * 2) + 2;
+  await Promise.all(
+    posts.map(async (post, k) => {
+      const pool: string[] = [];
+      for (let batch = 0; pool.length < need && batch < Math.ceil(need / READER_BATCH) + 2; batch++) {
+        const persona = PERSONAS[(k + batch) % PERSONAS.length]!;
+        const got = await writer.readerComments(titles.get(post) ?? post, READER_BATCH, persona).catch(() => []);
+        pool.push(...got.filter((t) => !pool.includes(t)));
+      }
+      out.set(post, pool.sort(() => Math.random() - 0.5));
+    }),
+  );
+  return out;
 }
 
 interface TextSource {
@@ -330,8 +363,8 @@ async function read(ctx: Ctx, a: Actor, comments: PortalComment[]): Promise<void
     if (token) await browserEvent(target, a, viewEvent(token, post));
     const readMs = sample(p.audience.read_ms);
     await sleep(readMs);
-    if (Math.random() < (p.audience.comment_p ?? 0)) {
-      const text = readerComment();
+    const text = Math.random() < (p.audience.comment_p ?? 0) ? ctx.readerTexts.get(post)?.pop() : undefined;
+    if (text) {
       // Kucanje: oko 200 ms po znaku, uz poneku ispravku.
       const typingMs = Math.round(text.length * 200 * (0.8 + Math.random() * 0.6));
       await sleep(typingMs);

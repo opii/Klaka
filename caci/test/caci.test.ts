@@ -8,7 +8,7 @@ import { Prefixes } from "../src/net.js";
 import { parseProfile, schedule } from "../src/profile.js";
 import { match, summarize, summarizeComments, threads, type StoredComment, type StoredVote } from "../src/report.js";
 import { operativePlan, type Action, type CommentAction, type RunLog } from "../src/run.js";
-import { clean } from "../src/texts.js";
+import { clean, lines } from "../src/texts.js";
 
 function action(over: Partial<Action>): Action {
   return {
@@ -133,4 +133,9 @@ test("parafraza: prvi red bez navodnika; prazan ili predugačak odgovor se odbac
   assert.equal(clean({ response: '„Divan dan, pozdrav svima."\nObjašnjenje: ...' }), "Divan dan, pozdrav svima.");
   assert.equal(clean({ response: "   " }), null);
   assert.equal(clean({ response: "x".repeat(301) }), null);
+});
+
+test("komentari publike: po jedan u redu, bez numeracije i navodnika, bez ponavljanja", () => {
+  const r = { response: '1. Konačno, čekamo ovo godinama.\n- „Ko će to platiti?"\n\n2) Konačno, čekamo ovo godinama.\nok' };
+  assert.deepEqual(lines(r), ["Konačno, čekamo ovo godinama.", "Ko će to platiti?"]);
 });

@@ -1,5 +1,7 @@
-// Tekstovi emulatora (docs/caci.md §2.1): šabloni po ulozi, pseudonimi, komentari publike i
-// parafraze. Šabloni su generički — bez teme i strane: sadržaj nije signal za presudu.
+// Tekstovi emulatora (docs/caci.md §2.1): šabloni po ulozi, pseudonimi, parafraze i komentari
+// publike. Šabloni su generički — bez teme i strane: sadržaj nije signal za presudu. Komentari
+// publike su o članku, svaki svojim rečima (lokalni LLM): organski tekst se ne ponavlja kao
+// šablon, pa je on prava mera lažnih pozitiva za tekstualnu dimenziju.
 
 import type { Role } from "./profile.js";
 
@@ -39,26 +41,6 @@ export function pseudonym(rand: () => number = Math.random): string {
   return rand() < 0.6 ? `${name}${10 + Math.floor(rand() * 90)}` : name;
 }
 
-// Komentari publike: sastavljeni iz delova, da se ne ponavljaju doslovno (organski tekst
-// nije šablon). Bez teme, kao i šabloni klake — uporedivi su po obliku, ne po sadržaju.
-const OPEN = [
-  "Iskreno,", "Po meni", "Mislim da", "Koliko ja znam,", "Ne znam za druge, ali", "Zanimljivo,",
-  "Pitanje je samo", "Videćemo, ali", "Dobro je što", "Šteta što", "Nadam se da", "Čini mi se da",
-];
-const BODY = [
-  "ovo je trebalo uraditi ranije", "rok je previše optimističan", "niko nije pitao stanare",
-  "o ovome se priča godinama", "prošli put je trajalo duplo duže", "cena će na kraju biti veća",
-  "to rešava samo deo problema", "detalji tek treba da se vide", "ovakvih vesti bi trebalo da bude više",
-  "kod nas u kraju je slično", "ljudi će se brzo navići", "o tome bi trebalo pitati struku",
-  "u drugim gradovima to već radi", "važnije je održavanje nego otvaranje",
-];
-const CLOSE = [".", ".", "!", ", videćemo.", ", ali dobro.", ", nadam se.", " — svaka čast ako uspe.", ", kao i obično."];
-
-export function readerComment(rand: () => number = Math.random): string {
-  const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)]!;
-  return `${pick(OPEN)} ${pick(BODY)}${pick(CLOSE)}`;
-}
-
 /** `n` tekstova uloge, redom kroz šablone (bez parafraze). */
 export function templated(templates: string[], n: number, offset = 0): string[] {
   return Array.from({ length: n }, (_, i) => templates[(offset + i) % templates.length]!);
@@ -69,13 +51,31 @@ export interface Paraphraser {
   paraphrase(text: string): Promise<string | null>;
 }
 
+export interface Writer extends Paraphraser {
+  /** Do `n` različitih komentara čitalaca ispod članka sa naslovom `title`. */
+  readerComments(title: string, n: number, persona: string): Promise<string[]>;
+}
+
+/** Ko piše: svaka grupa komentara dobija drugu mešavinu, da publika ne zvuči kao jedan glas. */
+export const PERSONAS = [
+  "penzionerka iz kraja, student, mlada majka, taksista",
+  "neko ko je skeptičan prema gradskoj upravi, neko ko je zadovoljan, neko ko samo pita",
+  "prodavac sa pijace, nastavnik, vozač, neko ko je tek doselio",
+  "neko ko piše kratko i bez interpunkcije, neko ko piše dugo i opširno, neko sa malo ironije",
+];
+
 const PROMPT = `Preformuliši komentar drugim rečima, sa istim značenjem i tonom, kao da ga piše druga osoba.
 Piši na srpskom, latinicom, jednom kratkom rečenicom. Vrati samo novi komentar, bez navodnika i objašnjenja.
 
 Komentar: `;
 
-/** Parafraze preko lokalnog Ollama servisa (docs/llm.md). */
-export function ollama(url: string, model: string): Paraphraser & { check(): Promise<void> } {
+const READERS_PROMPT = (title: string, n: number, persona: string) => `Ispod članka „${title}" na lokalnom portalu napiši ${n} različitih komentara čitalaca.
+Svaki komentar piše druga osoba (na primer: ${persona}), svojim rečima i tonom: neko se slaže,
+neko sumnja, neko pita, neko dodaje iskustvo iz svog kraja. Jedna do dve rečenice, srpski, latinica.
+Bez numeracije, bez navodnika i bez imena — svaki komentar u svom redu.`;
+
+/** Parafraze i komentari publike preko lokalnog Ollama servisa (docs/llm.md). */
+export function ollama(url: string, model: string): Writer & { check(): Promise<void> } {
   const base = url.replace(/\/+$/, "");
   return {
     async check() {
@@ -99,7 +99,30 @@ export function ollama(url: string, model: string): Paraphraser & { check(): Pro
       if (!res.ok) return null;
       return clean((await res.json()) as { response?: string });
     },
+    async readerComments(title, n, persona) {
+      const res = await fetch(`${base}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, prompt: READERS_PROMPT(title, n, persona), stream: false, options: { temperature: 1.0 } }),
+      });
+      if (!res.ok) return [];
+      return lines((await res.json()) as { response?: string }).slice(0, n);
+    },
   };
+}
+
+/** Komentari iz odgovora sa po jednim u redu: bez numeracije, crtica i navodnika, bez ponavljanja. */
+export function lines(r: { response?: string }): string[] {
+  const out: string[] = [];
+  for (const raw of (r.response ?? "").split("\n")) {
+    const line = raw
+      .trim()
+      .replace(/^(\d+[.)]|[-*•])\s*/, "")
+      .replace(/^["„“”«»']+|["„“”«»']+$/g, "")
+      .trim();
+    if (line.length >= 5 && line.length <= 300 && !out.includes(line)) out.push(line);
+  }
+  return out;
 }
 
 /** Prvi red odgovora, bez navodnika; prazan ili predugačak odgovor nije upotrebljiv. */

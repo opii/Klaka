@@ -63,8 +63,9 @@ saobraćaj nikad ne daje (koncept §6, treći izvor oznaka).
 Status: nivoi 0–4 i sve tri uloge rade (glasovi i komentari, ogledalo, smene, rotacija
 pseudonima, parafraze, čitaoci koji glasaju i komentarišu, CGNAT blizanac, izveštaj sa
 presudama engine-a). Nivo 3 engine hvata kad kampanja ide kroz više postova (usmereni glasovi),
-a kampanju na jednom postu ne hvata. Komentare engine još ne ocenjuje: razvodnjivači i
-šablonski komentari prolaze, osim kad prefiks već ima presudu zbog glasova.
+a kampanju na jednom postu ne hvata. Komentare hvataju nenapisani komentari (nalepljeni, bez
+forme) i deljeni šabloni (kopije i parafraze kroz više postova). Granica je vreme: presuda važi
+za sledeće akcije, pa ono što je kohorta napisala dok se nije skupila ostaje javno.
 
 ### 2.1. Ogledalo
 
@@ -93,10 +94,12 @@ Merimo koliko glasova svaki nivo progura u javni zbir.
 | 3 | pažljiv browser | čita, skroluje, glasa samo za vidljive komentare, nasumična kašnjenja | pojedinačno čist — vidi se tek u kohorti (ponavljanje kroz postove, zajednički prefiks, isti ciljevi) |
 | 4 | smena poslušnika | nivo 3 + raspored smena, rotacija pseudonima, šablonski komentari i parafraze (lokalni LLM) | graf kohorte, ritam smena (change-point), šabloni (MinHash, embeddings) |
 
-Nivoe 0–1 hvata token, nivo 2 bihevioralni detektori engine-a (prikazi-duhovi, nečitani glasovi).
-Nivo 3 hvata detektor usmerenih glasova: isti prefiks, isti autor komentara i smer, kroz više
-postova, mnogo češće nego organska publika. Kampanja na jednom postu ostaje ispod praga — pravilo
-preseka traži više postova (koncept §2a). Nivo 4 je sledeći test engine-a pre pravog portala.
+Nivoe 0–1 hvata token, nivo 2 bihevioralni detektori engine-a (prikazi-duhovi, nečitani glasovi,
+nenapisani komentari). Nivo 3 hvata detektor usmerenih glasova: isti prefiks, isti autor
+komentara i smer, kroz više postova, mnogo češće nego organska publika; kucane komentare hvata
+detektor deljenih šablona (ista formulacija kroz postove). Kampanja na jednom postu ostaje ispod
+praga — pravilo preseka traži više postova (koncept §2a). Nivo 4 (smene, pseudonimi, parafraze)
+hvataju isti detektori, sporije: smena ima manje poslušnika, a parafraze su manje slične od kopija.
 
 ---
 
@@ -154,8 +157,10 @@ Nivo 4 dodaje `shifts` (poslušnici raspoređeni u smene koje se smenjuju; svaki
 svojoj), `pseudonyms` (rotacija pseudonima po komentaru) i `paraphrase` (svaki komentar je
 parafraza šablona iz lokalnog LLM-a, napravljena pre početka — kao spisak koji poslušnici
 dobiju za smenu). Publika: `readers` čitalaca (svaki čita 1–3 članka), `cgnat` čitalaca iza
-jednog prefiksa, verovatnoće glasa (`vote_p`) i komentara (`comment_p`). Komentari publike su
-sastavljeni iz delova, da se ne ponavljaju doslovno.
+jednog prefiksa, verovatnoće glasa (`vote_p`) i komentara (`comment_p`). Komentare publike piše
+lokalni LLM pre početka: o naslovu članka, u grupama sa različitim „ličnostima", svaki se koristi
+jednom. Organski tekst tako ne liči na šablon — prva verzija ih je sastavljala iz delova, pa su
+deljene rečenice izgledale kao kopije (udaljenost 0,04) i publika je ličila na klaku.
 
 ---
 
