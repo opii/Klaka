@@ -467,6 +467,7 @@ mod tests {
             max_text_distance: 0.2,
             min_minhash: 0.5,
             ttl: Duration::from_secs(3600),
+            retro: Duration::from_secs(600),
         }
     }
 

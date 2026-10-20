@@ -6,8 +6,8 @@ use std::time::Duration;
 use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
 use klaka_engine::comments::{EMBEDDING_DIM, embed_pending, template_cohorts, unwritten_cohorts};
 use klaka_engine::{
-    Config, GHOST_VIEWS, NetVerdict, focused_cohorts, ghost_cohorts, issue_net_shadow, net_key,
-    unread_cohorts,
+    Config, GHOST_VIEWS, Issued, NetVerdict, focused_cohorts, ghost_cohorts, issue_net_shadow,
+    net_key, retro_key, unread_cohorts,
 };
 use klaka_llm::{Embedder, LlmError};
 use serde_json::json;
@@ -27,6 +27,7 @@ fn cfg() -> Config {
         max_text_distance: 0.2,
         min_minhash: 0.5,
         ttl: Duration::from_secs(3600),
+        retro: Duration::from_secs(600),
     }
 }
 
@@ -142,7 +143,7 @@ async fn ghost_cohort_found_twins_and_small_groups_not() {
         let rev = issue_net_shadow(&pool, &mut valkey, verdict(ev.clone()), &cfg(), 1_000)
             .await
             .unwrap();
-        assert_eq!(rev, Some(1));
+        assert_eq!(rev.map(|i| i.rev), Some(1));
         let again = issue_net_shadow(&pool, &mut valkey, verdict(ev), &cfg(), 2_000)
             .await
             .unwrap();
@@ -505,6 +506,105 @@ async fn shared_templates_found_through_embeddings() {
         .collect();
     assert_eq!(got, [("198.18.31.0/24", 6, 0)], "{found:?}");
 
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn verdict_sends_counted_actions_of_the_prefix_to_retro() {
+    let Some((admin, pool, schema)) = schema("retro").await else {
+        return;
+    };
+    let Ok(url) = std::env::var("KLAKA_TEST_VALKEY_URL") else {
+        eprintln!("KLAKA_TEST_VALKEY_URL nije postavljen — preskačem");
+        return;
+    };
+    let mut valkey = redis::Client::open(url)
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let store = PgStore(pool.clone());
+    let portal = format!("{schema}.local"); // svoj stream po izvođenju
+    let action = |kind: &'static str, vid: Option<&str>, net: &str, decision: &str, id: &str| Row {
+        kind,
+        t: 1,
+        vid: vid.map(str::to_owned),
+        post: Some("p-1".to_owned()),
+        net: Some(net.to_owned()),
+        data: match kind {
+            "vote" => json!({"type": "vote", "target": id, "dir": 1, "decision": decision}),
+            _ => json!({"type": "comment", "comment": id, "text": "x", "decision": decision}),
+        },
+    };
+    let net = "198.18.41.0/24";
+    store
+        .insert(Batch {
+            portal: portal.clone(),
+            source: Source::Server,
+            rows: vec![
+                action("vote", Some("v1"), net, "count", "c1"),
+                action("vote", Some("v2"), net, "shadow", "c2"), // već shadow
+                action("comment", Some("v3"), net, "count", "k1"),
+                action("comment", Some("v4"), net, "shadow", "k2"), // već shadow
+                action("vote", Some("v5"), "198.18.42.0/24", "count", "c1"), // drugi prefiks
+            ],
+        })
+        .await
+        .unwrap();
+
+    let verdict = NetVerdict {
+        portal: &portal,
+        net,
+        detector: "test",
+        evidence: json!({}),
+    };
+    let issued = issue_net_shadow(&pool, &mut valkey, verdict, &cfg(), 1_000)
+        .await
+        .unwrap();
+    assert_eq!(
+        issued,
+        Some(Issued {
+            rev: 1,
+            retro_comments: 1,
+            retro_votes: 1
+        })
+    );
+
+    let audit: Vec<String> = sqlx::query_scalar(
+        "SELECT concat_ws(' ', kind, comment, vid, target) FROM verdict_retro ORDER BY kind",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audit, ["comment k1", "vote v1 c1"]);
+    let entries: Vec<(String, Vec<String>)> = redis::cmd("XRANGE")
+        .arg(retro_key(&portal))
+        .arg("-")
+        .arg("+")
+        .query_async(&mut valkey)
+        .await
+        .unwrap();
+    // Obe akcije su upisane istim INSERT-om (isto vreme prijema), pa redosled nije zadat.
+    let mut fields: Vec<_> = entries.into_iter().map(|(_, f)| f.join(" ")).collect();
+    fields.sort();
+    assert_eq!(
+        fields,
+        [
+            "kind comment post p-1 comment k1",
+            "kind vote post p-1 vid v1 target c1"
+        ]
+    );
+
+    redis::cmd("DEL")
+        .arg(retro_key(&portal))
+        .arg(net_key(&portal, net))
+        .query_async::<()>(&mut valkey)
+        .await
+        .unwrap();
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)

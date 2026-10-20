@@ -21,5 +21,10 @@ export async function valkeyStore(url: string): Promise<Store> {
     async mget(keys) {
       return client.mGet(keys);
     },
+    async range(key, after, count) {
+      // "(" = posle tog ID-ja, bez njega (Redis ≥ 6.2, Valkey).
+      const entries = await client.xRange(key, `(${after}`, "+", { COUNT: count });
+      return entries.map((e) => ({ id: e.id, fields: e.message }));
+    },
   };
 }

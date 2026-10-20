@@ -15,8 +15,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { parseProfile } from "./profile.js";
 import {
-  activeVerdictNets, format, formatComments, formatVerdicts, loadComments, loadVerdicts, loadVotes, summarize,
-  summarizeComments, threads,
+  busyNets, format, formatComments, formatVerdicts, loadComments, loadRetro, loadVerdicts, loadVotes,
+  summarize, summarizeComments, threads,
 } from "./report.js";
 import { run, type RunLog } from "./run.js";
 import { ollama } from "./texts.js";
@@ -30,8 +30,8 @@ async function main([cmd, arg]: string[]): Promise<void> {
   if (cmd === "run" && arg) {
     const profile = parseProfile(JSON.parse(await readFile(arg, "utf8")));
     const portal = env.CACI_PORTAL ?? "demo.local";
-    // Prefiksi sa važećom presudom iz ranijih izvođenja bi novo izvođenje „nasledilo".
-    const avoid = env.CACI_POSTGRES_URL ? await activeVerdictNets(env.CACI_POSTGRES_URL, portal) : new Set<string>();
+    // Prefiksi iz ranijih izvođenja (presude, naknadni shadow) bi se umešali u ovo.
+    const avoid = env.CACI_POSTGRES_URL ? await busyNets(env.CACI_POSTGRES_URL, portal) : new Set<string>();
     // Lokalni LLM: parafraze šablona (nivo 4) i komentari publike o člancima.
     let writer;
     if (profile.paraphrase || (profile.audience.comment_p ?? 0) > 0) {
@@ -80,9 +80,10 @@ async function report(log: RunLog): Promise<void> {
     console.log("CACI_POSTGRES_URL nije postavljen — bez izveštaja");
     return;
   }
-  console.log(format(log, summarize(log, await loadVotes(url, log))));
+  const retro = await loadRetro(url, log);
+  console.log(format(log, summarize(log, await loadVotes(url, log), retro)));
   const stored = await loadComments(url, log);
-  const comments = formatComments(summarizeComments(log, stored), threads(log, stored));
+  const comments = formatComments(summarizeComments(log, stored, retro), threads(log, stored, retro));
   if (comments) console.log(`\n${comments}`);
   console.log("");
   console.log(formatVerdicts(log, await loadVerdicts(url, log)));

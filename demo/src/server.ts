@@ -8,7 +8,7 @@
 //   KLAKA_COLLECTOR_PUBLIC_URL  klaka-collector iz browsera, za /v1/events (bez njega: bez događaja)
 //   KLAKA_SNIPPET          putanja do klaka.min.js                 (../ts/dist/klaka.min.js)
 //   KLAKA_MIN_AGE_MS, KLAKA_MAX_AGE_MS, KLAKA_MAX_USES               (2000, 7200000, 50)
-//   KLAKA_VALKEY_URL       brojač upotreba, ponovljeni glasovi, presude; bez njega se ne proveravaju
+//   KLAKA_VALKEY_URL       brojač upotreba, ponovljeni glasovi, presude, naknadni shadow; bez njega ništa od toga
 //   KLAKA_COLLECTOR_URL, KLAKA_API_KEY   slanje događaja; bez njih se događaji ne šalju
 //   KLAKA_CLIENT_IP_HEADER   zaglavlje sa IP-jem klijenta iza pouzdanog proxy-ja (npr.
 //                            x-forwarded-for, važi poslednja vrednost). SAMO za test okruženje:
@@ -18,7 +18,7 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 
-import { EventSender, Klaka, type Policy } from "@klaka/sdk-node";
+import { EventSender, Klaka, type Policy, type RetroAction } from "@klaka/sdk-node";
 
 import { POSTS, SEED_COMMENTS } from "./content.js";
 import { adminPage, articlePage, homePage, type Comment, type VoteLog } from "./page.js";
@@ -126,6 +126,32 @@ async function comment(req: IncomingMessage, res: ServerResponse): Promise<void>
 
   // Isti odgovor za count i shadow: autor svoj komentar vidi u oba slučaja.
   send(res, 200, "application/json", JSON.stringify({ ok: true, id }), headers);
+}
+
+// Naknadni shadow (sdk.md §2b): akcije koje je engine uz presudu poslao da se skinu. Kursor je
+// u memoriji, kao i sve ostalo u demo-u; počinje od starta, jer starije akcije ovaj proces ne zna.
+let retroCursor = `${started}-0`;
+const RETRO_MS = 2_000;
+
+async function applyRetro(): Promise<void> {
+  if (!klaka) return;
+  const { cursor, actions } = await klaka.retro(retroCursor);
+  for (const a of actions) applyRetroAction(a);
+  retroCursor = cursor;
+}
+
+/** Idempotentno: već skinuta ili nepoznata akcija se preskače. */
+function applyRetroAction(a: RetroAction): void {
+  if (a.kind === "comment") {
+    const c = comments.find((x) => x.id === a.comment && x.decision === "count");
+    if (c) Object.assign(c, { decision: "shadow", retro: true });
+    return;
+  }
+  const v = votes.find((x) => x.vid === a.vid && x.comment === a.target && x.decision === "count");
+  if (!v) return;
+  Object.assign(v, { decision: "shadow", retro: true });
+  const c = comments.find((x) => x.id === v.comment);
+  if (c) c.score -= v.dir;
 }
 
 function article(req: IncomingMessage, res: ServerResponse, id: string): void {
@@ -245,6 +271,7 @@ function readSnippet(path: string): string {
 
 await refreshKeys();
 setInterval(refreshKeys, 15_000).unref();
+setInterval(() => void applyRetro().catch((e: Error) => console.warn(`naknadni shadow: ${e.message}`)), RETRO_MS).unref();
 for (const p of POSTS) {
   events?.send({
     type: "post", t: Date.now(), post: p.id, rev: 1, url: `https://${PORTAL}/p/${p.id}`,

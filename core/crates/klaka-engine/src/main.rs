@@ -14,6 +14,8 @@
 //! - `KLAKA_OLLAMA_URL`, `KLAKA_EMBED_MODEL`  embeddings komentara (bez njih: samo MinHash)
 //! - `KLAKA_RETENTION_DAYS`      koliko dugo se čuvaju embeddings, kao i događaji (30)
 //! - `KLAKA_ENGINE_TTL_S`        trajanje presude (3600)
+//! - `KLAKA_ENGINE_RETRO_S`      naknadni shadow: akcije prefiksa iz ovoliko sekundi pre presude
+//!   (podrazumevano isto kao prozor)
 
 use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -38,8 +40,9 @@ async fn main() {
     let valkey_url = std::env::var("KLAKA_VALKEY_URL")
         .unwrap_or_else(|_| fail("KLAKA_VALKEY_URL nije postavljen"));
     let interval = Duration::from_secs(env("KLAKA_ENGINE_INTERVAL_S", 10));
+    let window_s = env("KLAKA_ENGINE_WINDOW_S", 600);
     let cfg = Config {
-        window: Duration::from_secs(env("KLAKA_ENGINE_WINDOW_S", 600)),
+        window: Duration::from_secs(window_s),
         min_votes: env("KLAKA_ENGINE_MIN_VOTES", 5),
         min_vids: env("KLAKA_ENGINE_MIN_VIDS", 3),
         min_flagged_share: env("KLAKA_ENGINE_MIN_FLAGGED_SHARE", 0.8),
@@ -50,6 +53,7 @@ async fn main() {
         max_text_distance: env("KLAKA_ENGINE_MAX_TEXT_DISTANCE", 0.2),
         min_minhash: env("KLAKA_ENGINE_MIN_MINHASH", 0.5),
         ttl: Duration::from_secs(env("KLAKA_ENGINE_TTL_S", 3600)),
+        retro: Duration::from_secs(env("KLAKA_ENGINE_RETRO_S", window_s)),
     };
 
     let pool = PgPool::connect(&db_url)
@@ -142,10 +146,14 @@ async fn main() {
                 evidence,
             };
             match issue_net_shadow(&pool, &mut valkey, verdict, &cfg, now_ms()).await {
-                Ok(Some(rev)) => eprintln!(
-                    "klaka-engine: presuda shadow {portal} {net} (rev {rev}, {detector}): {} kohorti, {} glasova",
+                Ok(Some(i)) => eprintln!(
+                    "klaka-engine: presuda shadow {portal} {net} (rev {}, {detector}): {} kohorti, \
+                     {} akcija; naknadno {} komentara, {} glasova",
+                    i.rev,
                     findings.len(),
-                    findings.iter().map(|f| f.votes).sum::<i64>()
+                    findings.iter().map(|f| f.votes).sum::<i64>(),
+                    i.retro_comments,
+                    i.retro_votes
                 ),
                 Ok(None) => {}
                 Err(e) => eprintln!("klaka-engine: presuda {portal} {net} nije upisana: {e}"),

@@ -121,3 +121,28 @@ test("komentar: isti tok kao glas, bez pravila ponovljenog glasa; brojač upotre
   assert.equal((await klaka.onComment(req(), comment("k3"))).decision, "shadow", "presuda važi i za komentare");
   assert.equal((await klaka.onComment(req(null), comment("k4"))).token, "missing");
 });
+
+test("naknadni shadow: akcije posle kursora, neispravni unosi preskočeni, kvar ne obara", async () => {
+  const store = new MemoryStore(() => NOW);
+  const key = "klaka:v1:demo.local:retro";
+  store.append(key, { kind: "comment", post: POST, comment: "k1" });
+  const mid = store.append(key, { kind: "vote", post: POST, vid: VID, target: "c1" });
+  store.append(key, { kind: "vote", post: POST, vid: VID }); // bez cilja
+  const last = store.append(key, { kind: "comment", post: POST, comment: "k2" });
+  const { klaka } = setup(store);
+
+  const all = await klaka.retro();
+  assert.equal(all.cursor, last);
+  assert.deepEqual(all.actions, [
+    { kind: "comment", post: POST, comment: "k1" },
+    { kind: "vote", post: POST, vid: VID, target: "c1" },
+    { kind: "comment", post: POST, comment: "k2" },
+  ]);
+  assert.deepEqual((await klaka.retro(mid)).actions, [{ kind: "comment", post: POST, comment: "k2" }]);
+  assert.deepEqual(await klaka.retro(last), { cursor: last, actions: [] });
+
+  const broken: Store = { ...store, mget: store.mget.bind(store), incr: store.incr.bind(store),
+    setNx: store.setNx.bind(store), range: () => Promise.reject(new Error("ECONNREFUSED")) };
+  assert.deepEqual(await setup(broken).klaka.retro(mid), { cursor: mid, actions: [] });
+  assert.deepEqual(await setup().klaka.retro(mid), { cursor: mid, actions: [] }, "bez Valkey-ja");
+});

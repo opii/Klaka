@@ -64,8 +64,8 @@ Status: nivoi 0–4 i sve tri uloge rade (glasovi i komentari, ogledalo, smene, 
 pseudonima, parafraze, čitaoci koji glasaju i komentarišu, CGNAT blizanac, izveštaj sa
 presudama engine-a). Nivo 3 engine hvata kad kampanja ide kroz više postova (usmereni glasovi),
 a kampanju na jednom postu ne hvata. Komentare hvataju nenapisani komentari (nalepljeni, bez
-forme) i deljeni šabloni (kopije i parafraze kroz više postova). Granica je vreme: presuda važi
-za sledeće akcije, pa ono što je kohorta napisala dok se nije skupila ostaje javno.
+forme) i deljeni šabloni (kopije i parafraze kroz više postova). Ono što je kohorta uradila dok
+se nije skupila skida naknadni shadow (`verdicts.md` §5): portal ga primenjuje posle presude.
 
 ### 2.1. Ogledalo
 
@@ -190,7 +190,8 @@ emulator; za Klaku su to obični prefiksi.
 | --- | --- |
 | odziv | udeo glasova poslušnika (po ulozi) koji su završili u `shadow` |
 | lažni pozitivi | udeo glasova publike u `shadow`; posebno za blizance |
-| pomeraj javnog zbira | koliko je kampanja pomerila javni brojač ciljeva — **glavno merilo**: to je jedino što se klaki plaća |
+| pomeraj javnog zbira | koliko je kampanja pomerila javni brojač ciljeva, posle naknadnog shadow-a — **glavno merilo**: to je jedino što se klaki plaća |
+| udeo u javnim komentarima | koliko javnih komentara članka je od klake, posle naknadnog shadow-a — merilo za razvodnjivače |
 | simetrija | razlika u svemu gore između dve strane ogledala; cilj je nula |
 
 Izveštaj ne čita Valkey ni admin stranice demo portala — samo ono što bi postojalo i na

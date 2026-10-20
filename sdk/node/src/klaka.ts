@@ -2,7 +2,7 @@
 
 import { truncateUa, type EventSender } from "./events.js";
 import { netPrefix } from "./net.js";
-import type { Store } from "./store.js";
+import type { Store, StreamEntry } from "./store.js";
 import { TokenVerifier, type Policy, type TokenResult } from "./token.js";
 import { decide, parseVerdict, strongest, type Action, type Decision } from "./verdict.js";
 
@@ -55,6 +55,21 @@ export interface CommentInput {
 }
 
 export type CommentResult = Omit<VoteResult, "repeat">;
+
+/**
+ * Akcija za naknadni shadow (verdicts.md §5): komentar se više ne prikazuje javno (autor ga i
+ * dalje vidi), glas se oduzima od javnog zbira. Glas je određen parom (`vid`, `target`) — prikaz
+ * ima najviše jedan uračunat glas po cilju (sdk.md §2a).
+ */
+export type RetroAction =
+  | { kind: "comment"; post: string; comment: string }
+  | { kind: "vote"; post: string; vid: string; target: string };
+
+export interface RetroBatch {
+  /** ID poslednjeg pročitanog unosa; sledeći poziv kreće od njega. */
+  cursor: string;
+  actions: RetroAction[];
+}
 
 interface State {
   uses: number | null;
@@ -130,6 +145,24 @@ export class Klaka {
   }
 
   /**
+   * Naknadni shadow (sdk.md §2b): akcije posle `after`. Portal ga zove periodično, van putanje
+   * zahteva, primenjuje akcije idempotentno i čuva `cursor`. Neispravan unos se preskače;
+   * Valkey nedostupan → prazan spisak i isti `cursor`.
+   */
+  async retro(after = "0-0", count = 100): Promise<RetroBatch> {
+    const store = this.#cfg.store;
+    if (!store?.range) return { cursor: after, actions: [] };
+    let entries: StreamEntry[];
+    try {
+      entries = await store.range(`${this.#prefix}retro`, after, count);
+    } catch {
+      return { cursor: after, actions: [] };
+    }
+    const actions = entries.map((e) => parseRetro(e.fields)).filter((a): a is RetroAction => a !== null);
+    return { cursor: entries.at(-1)?.id ?? after, actions };
+  }
+
+  /**
    * Koraci 2–3 u jednom krugu do Valkey-ja, u budžetu; svaki kvar je „nedostupan" (fail-open).
    * `target` samo za glas (ponovljen glas, §2a).
    */
@@ -162,4 +195,12 @@ export class Klaka {
       clearTimeout(timer);
     }
   }
+}
+
+function parseRetro(f: Record<string, string>): RetroAction | null {
+  const ok = (v: string | undefined): v is string => typeof v === "string" && v.length > 0;
+  if (!ok(f.post)) return null;
+  if (f.kind === "comment" && ok(f.comment)) return { kind: "comment", post: f.post, comment: f.comment };
+  if (f.kind === "vote" && ok(f.vid) && ok(f.target)) return { kind: "vote", post: f.post, vid: f.vid, target: f.target };
+  return null;
 }

@@ -22,16 +22,25 @@ if (decision === "count") score += dir;   // "shadow": sačuvaj, prikaži samo g
 
 // Komentar: ID pravi portal pre poziva; "shadow" komentar vidi samo njegov autor.
 const c = await klaka.onComment(request, { post: postId, comment: id, author, text, replyTo: null });
+
+// Naknadni shadow (sdk.md §2b), periodično, van putanje zahteva; cursor čuva portal.
+const { cursor: next, actions } = await klaka.retro(cursor);
+for (const a of actions) {
+  if (a.kind === "comment") hideFromPublic(a.comment);          // autor ga i dalje vidi
+  else uncountVote(a.vid, a.target);                             // jedan uračunat glas po (vid, cilj)
+}
 ```
 
 Portal korisniku vraća **isti odgovor** za `count` i `shadow` (spec README, princip 3).
 
 `onVote` radi ceo tok iz `sdk.md` §2: token, brojač upotreba prikaza, jedan glas po (`vid`,
 cilj) (§2a), presude, odluka, pa događaj collector-u u pozadini. `onComment` je isti tok, bez
-pravila jednog glasa po cilju. Valkey ima budžet od 20 ms;
+pravila jednog glasa po cilju. `retro` čita akcije koje je engine uz presudu poslao u naknadni
+shadow (`verdicts.md` §5): ono što je kohorta uradila pre nego što je prepoznata. Valkey ima budžet od 20 ms;
 ako ne odgovori ili ne postoji, odluka je samo po tokenu (fail-open za presude).
 
-**Valkey** se daje kao `Store` sa tri operacije, da SDK ostane bez runtime zavisnosti.
+**Valkey** se daje kao `Store` sa tri operacije (i četvrtom, `range`, za naknadni shadow), da
+SDK ostane bez runtime zavisnosti.
 Adapter za node-redis (ceo primer: [`demo/src/valkey.ts`](../../demo/src/valkey.ts)):
 
 ```ts
@@ -40,6 +49,8 @@ const store: Store = {
   incr: async (k, ttl) => Number((await client.multi().incr(k).pExpire(k, ttl, "NX").exec())[0]),
   setNx: async (k, ttl) => (await client.set(k, "1", { NX: true, PX: ttl })) === "OK",
   mget: (keys) => client.mGet(keys),
+  range: async (k, after, count) =>
+    (await client.xRange(k, `(${after}`, "+", { COUNT: count })).map((e) => ({ id: e.id, fields: e.message })),
 };
 ```
 
@@ -48,7 +59,7 @@ Delovi su dostupni i pojedinačno (`TokenVerifier`, `parseVerdict`, `strongest`,
 
 | Gotovo | Sledi |
 | --- | --- |
-| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), slanje događaja | `onModeration`, `onPost`, `onPromotion` (`sdk.md` §1) |
+| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), naknadni shadow (`retro`), slanje događaja | `onModeration`, `onPost`, `onPromotion` (`sdk.md` §1) |
 
 ```bash
 docker compose run --rm -w /work/sdk/node node npm test   # iz korena repoa

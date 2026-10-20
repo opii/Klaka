@@ -47,3 +47,40 @@ Rezervisano za proof-of-work izazov. **U v1 SDK tretira
   preseka).
 - Nijedna presuda zasnovana samo na geografiji ili samo na vremenu (koncept §8).
 - Svaka upisana presuda ima zapis u audit-u (`klaka-api`, PostgreSQL) sa dokazima u tom trenutku.
+- Uz svaku presudu `shadow` engine upisuje i naknadni shadow (§5) za prozor u kome je video
+  dokaze — u istoj transakciji audita: nema unosa u stream bez zapisa, ni obrnuto.
+
+## 5. Naknadni shadow
+
+Presuda važi za akcije **posle** nje. Ono što je kohorta uradila dok se nije skupila — u prozoru
+u kome je engine video dokaze — ostalo bi uračunato: kod komentara je to najveći deo štete
+(razvodnjivač zatrpa temu pre nego što ga detektor prepozna). Zato engine uz presudu javlja i
+spisak tih akcija, a portal ih naknadno prebacuje u shadow.
+
+**Ključ:** Valkey stream `klaka:v1:<portal>:retro`. Jedan unos = jedna akcija koja je u trenutku
+akcije dobila `count`:
+
+| Polje | Vrednost |
+| --- | --- |
+| `kind` | `"comment"` \| `"vote"` |
+| `post` | post akcije |
+| `comment` | samo za `comment`: ID komentara u sistemu portala |
+| `vid`, `target` | samo za `vote`: prikaz i komentar na koji je glasano. Prikaz ima najviše jedan uračunat glas po cilju (`sdk.md` §2a), pa par jednoznačno određuje glas |
+
+Engine upisuje sve takve akcije iz prefiksa presude u prozoru dokaza i seče stream na 24 sata
+(`XADD … MINID ~`). Portal čita unose posle poslednjeg obrađenog ID-ja (`sdk.md` §2b) i za svaki:
+
+- **komentar** — više se ne prikazuje javno; autor ga i dalje vidi kao svoj (princip 3);
+- **glas** — oduzima se od javnog zbira; glasaču se ništa ne javlja.
+
+Obrada MORA biti idempotentna: isti unos može stići više puta (obnova presude, više instanci
+portala). Nepoznat ID se preskače. Naknadni shadow je **trajan** — ne vraća se kad presuda
+istekne, kao ni odluka donesena u trenutku akcije. Poništavanje (recenzent odbaci kohortu) v1 ne
+podržava.
+
+**Kolateral** je isti kao kod presude unapred: legitimni korisnici istog prefiksa u prozoru dokaza
+izgube svoje akcije (izmereno emulatorom: čitalac koji je par minuta ranije koristio prefiks
+kasnije kohorte). Zato presuda po prefiksu i dalje traži drugu nezavisnu dimenziju (§4), a
+prozor naknadnog shadow-a nije duži od prozora u kome je engine video dokaze.
+
+**Namerno nema:** razloga, prefiksa, presude. Unos kaže samo koju akciju skinuti, ne i zašto.

@@ -16,6 +16,8 @@ export interface Comment {
   owner: string | null;
   /** Rezultat provere tokena; `null` za početne komentare. */
   token: string | null;
+  /** Prebačen u shadow naknadno (verdicts.md §5), posle odluke `count`. */
+  retro?: boolean;
 }
 
 export interface VoteLog {
@@ -28,6 +30,8 @@ export interface VoteLog {
   uses: number | null;
   repeat: boolean | null;
   decision: "count" | "shadow";
+  /** Prebačen u shadow naknadno (verdicts.md §5), posle odluke `count`. */
+  retro?: boolean;
 }
 
 export function esc(s: string | number | null): string {
@@ -188,7 +192,7 @@ export function adminPage(votes: VoteLog[], comments: Comment[]): string {
         <td>${esc(time(v.t))}</td><td>${esc(v.post)}</td>
         <td>${esc(v.comment)}</td><td>${v.dir > 0 ? "+1" : "−1"}</td>
         <td>${esc(v.token)}</td><td>${esc(v.uses)}</td><td>${v.repeat === null ? "" : v.repeat ? "da" : "ne"}</td>
-        <td class="${v.decision}">${esc(v.decision)}</td><td>${esc(v.vid)}</td></tr>`,
+        <td class="${v.decision}">${esc(v.decision)}${v.retro ? " (naknadno)" : ""}</td><td>${esc(v.vid)}</td></tr>`,
     )
     .join("");
   const list = comments
@@ -198,7 +202,7 @@ export function adminPage(votes: VoteLog[], comments: Comment[]): string {
       (c) => `<tr>
         <td>${c.token === null ? "" : esc(time(c.t))}</td><td>${esc(c.post)}</td><td>${esc(c.id)}</td>
         <td>${esc(c.author)}</td><td>${esc(c.text.length > 60 ? c.text.slice(0, 60) + "…" : c.text)}</td>
-        <td>${esc(c.token ?? "početni")}</td><td class="${c.decision}">${esc(c.decision)}</td><td>${esc(c.score)}</td></tr>`,
+        <td>${esc(c.token ?? "početni")}</td><td class="${c.decision}">${esc(c.decision)}${c.retro ? " (naknadno)" : ""}</td><td>${esc(c.score)}</td></tr>`,
     )
     .join("");
   return layout(

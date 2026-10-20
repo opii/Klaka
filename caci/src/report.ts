@@ -39,11 +39,23 @@ export function match(actions: Action[], votes: StoredVote[]): Map<Action, Store
   return out;
 }
 
+/** Akcije koje je engine uz presude ovog izvođenja poslao u naknadni shadow (verdicts.md §5). */
+export interface Retro {
+  comments: Set<string>;
+  /** `${vid} ${target}` — jedan uračunat glas po (vid, cilj). */
+  votes: Set<string>;
+}
+
+export const NO_RETRO: Retro = { comments: new Set(), votes: new Set() };
+
 export interface Row {
   group: string;
   votes: number;
   matched: number;
+  /** Shadow u trenutku glasa. */
   shadow: number;
+  /** Uračunat u trenutku glasa, pa skinut naknadno. */
+  retro: number;
   /** Pomeraj javnog zbira: zbir smerova glasova koji su uračunati. */
   counted: number;
   tokens: Record<string, number>;
@@ -51,18 +63,19 @@ export interface Row {
   repeat: number;
 }
 
-export function summarize(log: RunLog, votes: StoredVote[]): Row[] {
+export function summarize(log: RunLog, votes: StoredVote[], retro: Retro = NO_RETRO): Row[] {
   const matched = match(log.actions, votes);
   const rows = new Map<string, Row>();
   for (const a of log.actions) {
     const group = groupOf(a);
-    const r = rows.get(group) ?? { group, votes: 0, matched: 0, shadow: 0, counted: 0, tokens: {}, repeat: 0 };
+    const r = rows.get(group) ?? { group, votes: 0, matched: 0, shadow: 0, retro: 0, counted: 0, tokens: {}, repeat: 0 };
     r.votes++;
     const v = matched.get(a);
     if (v) {
       r.matched++;
-      if (v.decision === "count") r.counted += v.dir;
-      else r.shadow++;
+      if (v.decision !== "count") r.shadow++;
+      else if (retro.votes.has(`${v.vid} ${v.target}`)) r.retro++;
+      else r.counted += v.dir;
       r.tokens[v.token] = (r.tokens[v.token] ?? 0) + 1;
       if (v.repeat) r.repeat++;
     }
@@ -80,19 +93,20 @@ export function format(log: RunLog, rows: Row[]): string {
   if (rows.length === 0) return lines.join("\n");
   lines.push(
     "",
-    "grupa                          glasova  u bazi  shadow  uračunato (pomeraj)  token",
+    "grupa                          glasova  u bazi  shadow  naknadno  uračunato (pomeraj)  token",
   );
   for (const r of rows) {
     const tokens = Object.entries(r.tokens).map(([k, n]) => `${k} ${n}`).join(", ") + (r.repeat ? `; ponovljen ${r.repeat}` : "");
     lines.push(
       `${r.group.padEnd(30)} ${String(r.votes).padStart(7)} ${String(r.matched).padStart(7)} ` +
-        `${pct(r.shadow, r.matched).padStart(7)}  ${String(r.counted).padStart(19)}  ${tokens}`,
+        `${pct(r.shadow, r.matched).padStart(7)} ${pct(r.retro, r.matched).padStart(9)}  ${String(r.counted).padStart(19)}  ${tokens}`,
     );
   }
   lines.push(
     "",
-    "Za poslušnike je shadow odziv, za čitaoce (i CGNAT) lažni pozitivi. Pomeraj je ono što je klaka",
-    "zaista kupila; strane A i B (ogledalo) treba da imaju isti shadow.",
+    "Za poslušnike je shadow odziv, za čitaoce (i CGNAT) lažni pozitivi; „naknadno\" je skinuto posle",
+    "presude (verdicts.md §5). Pomeraj je ono što je klaka zaista kupila, posle naknadnog shadow-a;",
+    "strane A i B (ogledalo) treba da imaju isti shadow.",
   );
   return lines.join("\n");
 }
@@ -137,21 +151,23 @@ export interface CommentRow {
   written: number;
   matched: number;
   shadow: number;
+  retro: number;
   tokens: Record<string, number>;
 }
 
 /** Komentari po grupi; spajanje po ID-ju koji je portal dao (isti u `comment` događaju). */
-export function summarizeComments(log: RunLog, stored: StoredComment[]): CommentRow[] {
+export function summarizeComments(log: RunLog, stored: StoredComment[], retro: Retro = NO_RETRO): CommentRow[] {
   const byId = new Map(stored.map((c) => [c.id, c]));
   const rows = new Map<string, CommentRow>();
   for (const a of log.comments) {
     const group = groupOf(a);
-    const r = rows.get(group) ?? { group, written: 0, matched: 0, shadow: 0, tokens: {} };
+    const r = rows.get(group) ?? { group, written: 0, matched: 0, shadow: 0, retro: 0, tokens: {} };
     r.written++;
     const c = a.id ? byId.get(a.id) : undefined;
     if (c) {
       r.matched++;
       if (c.decision !== "count") r.shadow++;
+      else if (retro.comments.has(c.id)) r.retro++;
       r.tokens[c.token] = (r.tokens[c.token] ?? 0) + 1;
     }
     rows.set(group, r);
@@ -173,33 +189,35 @@ export interface Thread {
  * Udeo klake u javnim komentarima članaka na kojima je pisala — merilo za razvodnjivače, kao
  * pomeraj javnog zbira za glasove: koliko je javne rasprave klaka zauzela.
  */
-export function threads(log: RunLog, stored: StoredComment[]): Thread[] {
+export function threads(log: RunLog, stored: StoredComment[], retro: Retro = NO_RETRO): Thread[] {
   const klaka = new Set(log.comments.filter((c) => c.side !== null && c.id).map((c) => c.id!));
   const posts = [...new Set(log.comments.filter((c) => c.side !== null).map((c) => c.post))].sort();
+  const isPublic = (c: StoredComment) => c.decision === "count" && !retro.comments.has(c.id);
   return posts.map((post) => {
     const here = stored.filter((c) => c.post === post);
-    const pub = here.filter((c) => c.decision === "count");
+    const pub = here.filter(isPublic);
     return {
       post,
       public: pub.length,
       klaka: pub.filter((c) => klaka.has(c.id)).length,
-      shadowed: here.filter((c) => c.decision !== "count" && klaka.has(c.id)).length,
+      shadowed: here.filter((c) => !isPublic(c) && klaka.has(c.id)).length,
     };
   });
 }
 
 export function formatComments(rows: CommentRow[], list: Thread[]): string {
   if (rows.length === 0) return "";
-  const lines = ["grupa                          komentara  u bazi  shadow  javno  token"];
+  const lines = ["grupa                          komentara  u bazi  shadow  naknadno  javno  token"];
   for (const r of rows) {
     const tokens = Object.entries(r.tokens).map(([k, n]) => `${k} ${n}`).join(", ");
     lines.push(
       `${r.group.padEnd(30)} ${String(r.written).padStart(9)} ${String(r.matched).padStart(7)} ` +
-        `${pct(r.shadow, r.matched).padStart(7)} ${String(r.matched - r.shadow).padStart(6)}  ${tokens}`,
+        `${pct(r.shadow, r.matched).padStart(7)} ${pct(r.retro, r.matched).padStart(9)} ` +
+        `${String(r.matched - r.shadow - r.retro).padStart(6)}  ${tokens}`,
     );
   }
   if (list.length) {
-    lines.push("", "Udeo klake u javnim komentarima članka, tokom izvođenja (razvodnjivači: što manje, to bolje):");
+    lines.push("", "Udeo klake u javnim komentarima članka, posle naknadnog shadow-a (razvodnjivači: što manje, to bolje):");
     for (const t of list) {
       lines.push(`  ${t.post}: ${t.klaka} od ${t.public} javnih (${pct(t.klaka, t.public)}); u shadow još ${t.shadowed}`);
     }
@@ -273,14 +291,47 @@ export async function loadVerdicts(url: string, log: RunLog): Promise<StoredVerd
   }
 }
 
-/** Prefiksi sa presudom koja još važi — emulator ih izbegava. */
-export async function activeVerdictNets(url: string, portal: string): Promise<Set<string>> {
+/** Naknadni shadow presuda nastalih tokom izvođenja (audit, ne Valkey). */
+export async function loadRetro(url: string, log: RunLog): Promise<Retro> {
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    const res = await client.query<{ kind: string; comment: string | null; vid: string | null; target: string | null }>(
+      `SELECT r.kind, r.comment, r.vid, r.target
+       FROM verdict_retro r JOIN verdicts v ON v.id = r.verdict_id
+       WHERE v.portal = $1 AND v.created_at >= to_timestamp($2 / 1000.0)`,
+      [log.portal, log.started_ms],
+    );
+    const out: Retro = { comments: new Set(), votes: new Set() };
+    for (const r of res.rows) {
+      if (r.kind === "comment" && r.comment) out.comments.add(r.comment);
+      if (r.kind === "vote" && r.vid && r.target) out.votes.add(`${r.vid} ${r.target}`);
+    }
+    return out;
+  } catch {
+    return NO_RETRO; // engine bez naknadnog shadow-a (starija šema)
+  } finally {
+    await client.end();
+  }
+}
+
+/** Prefiks korišćen u ovoliko vremena pre izvođenja se ne uzima (duže od prozora naknadnog shadow-a). */
+const BUSY_MS = 15 * 60 * 1000;
+
+/**
+ * Prefiksi koje emulator izbegava: sa presudom koja još važi, i oni korišćeni u poslednjih 15
+ * minuta. Inače čitalac iz prošlog izvođenja i kohorta iz ovog dele prefiks, pa naknadni shadow
+ * kohorte skine i čitaočeve akcije — merenje bi pomešalo dva izvođenja.
+ */
+export async function busyNets(url: string, portal: string): Promise<Set<string>> {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
     const res = await client.query<{ key: string }>(
-      `SELECT DISTINCT key FROM verdicts WHERE portal = $1 AND key_kind = 'net' AND until_ms > $2`,
-      [portal, Date.now()],
+      `SELECT key FROM verdicts WHERE portal = $1 AND key_kind = 'net' AND until_ms > $2
+       UNION
+       SELECT DISTINCT net FROM events WHERE portal = $1 AND net IS NOT NULL AND recv_at > to_timestamp($3 / 1000.0)`,
+      [portal, Date.now(), Date.now() - BUSY_MS],
     );
     return new Set(res.rows.map((r) => r.key));
   } catch {

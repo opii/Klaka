@@ -12,6 +12,7 @@ result   = verifier.onComment(request, post, comment, author, text, replyTo)
 verifier.onModeration(comment, result, reason)
 verifier.onPost(post, rev, url, title, section, body)
 verifier.onPromotion(post, channel)
+{ cursor, actions } = verifier.retro(after)                         §2b
 ```
 
 `request` daje: token (zaglavlje `X-Klaka-Token` ili polje forme `klaka_token`), IP klijenta
@@ -47,6 +48,14 @@ Bez ovog pravila jedan token važi za `max_uses` glasova, pa strpljiv napadač s
 prikazom pomera zbir za `max_uses` — izmereno emulatorom klake (`caci/`, profil `token-1`).
 Smer se ne računa: prvi glas (`1` ili `-1`) je jedini uračunat, promena mišljenja u istom
 prikazu nije podržana. `max_uses` i dalje ograničava ukupan broj akcija po prikazu.
+
+### 2b. Naknadni shadow
+
+`retro(after)` čita unose iz `klaka:v1:<portal>:retro` posle ID-ja `after` (`verdicts.md` §5) i
+vraća akcije za naknadni shadow i novi `cursor`. Portal ga zove periodično (npr. svakih
+nekoliko sekundi, van putanje zahteva), primenjuje akcije idempotentno i čuva `cursor`.
+Neispravan unos se preskače, a `cursor` ide dalje; Valkey nedostupan → prazan spisak i isti
+`cursor` (sledeći poziv nastavlja odatle).
 
 ### Otkazi — SDK nikad ne obara portal
 

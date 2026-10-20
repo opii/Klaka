@@ -20,13 +20,15 @@ ga kucaju. Nivo 4: smene, rotacija pseudonima i parafraze šablona preko lokalno
 servisa (`docker compose up -d --wait ollama ollama-pull`, model `KLAKA_LLM_MODEL`).
 
 Adrese su iz `198.18.0.0/15` (RFC 2544) i stižu do demo-a, `klaka-api`-ja i collector-a preko
-`X-Forwarded-For` — oni mu veruju **samo u test okruženju**. Prefiksi sa važećom presudom iz
-ranijih izvođenja se preskaču; ako ipak pogode izvođenje, izveštaj ih prikazuje kao „pre
-početka". Dnevnik svakog izvođenja (ground truth) je u `runs/`, van gita. Profili izvedeni iz
+`X-Forwarded-For` — oni mu veruju **samo u test okruženju**. Prefiksi sa važećom presudom i
+oni korišćeni u poslednjih 15 minuta se preskaču (naknadni shadow kohorte bi inače skinuo i
+akcije čitaoca iz prethodnog izvođenja sa istog prefiksa); ako presuda ipak pogodi izvođenje,
+izveštaj je prikazuje kao „pre početka". Dnevnik svakog izvođenja (ground truth) je u `runs/`, van gita. Profili izvedeni iz
 stvarnih slučajeva idu u `profiles.local/`, takođe van gita.
 
-Izveštaj: po grupi `shadow` (za poslušnike odziv, za čitaoce lažni pozitivi), pomeraj javnog
-zbira i rezultati tokena; isto za komentare, uz udeo klake u javnim komentarima članaka na
+Izveštaj: po grupi `shadow` u trenutku akcije i `naknadno` (skinuto posle presude, iz audita
+`verdict_retro`; demo ga primenjuje u roku od 2 s), za poslušnike odziv, za čitaoce lažni
+pozitivi; pomeraj javnog zbira posle naknadnog shadow-a i rezultati tokena; isto za komentare, uz udeo klake u javnim komentarima članaka na
 kojima je pisala (merilo za razvodnjivače); zatim presude engine-a — kada su nastale i koga su
 pogodile.
 
@@ -38,10 +40,10 @@ pogodile.
 | `browser-2.json` | nivo 2: pravi Chromium, svaki glas novo učitavanje stranice (pravi `view`/`engage`), glas iz konzole. Prolazi detektor duhova; detektor nečitanih glasova ga hvata (nema unosa): presude za 14–19 s, `shadow` 70–77%; čitaoci i CGNAT 0% |
 | `browser-2-klik.json` | nivo 2 sa klikom i sakrivenim `webdriver`-om: klik daje unos, ali komentar nije bio u `seen` (Playwright skroluje i odmah klikne): presude za 12–22 s, `shadow` 53–77%; čitaoci i CGNAT 0% |
 | `pazljiv-3.json` | nivo 3: skroluje do komentara, zadrži se, pa klikne — **nije uhvaćen** (0%). Granica signala čitanja; kampanja je na jednom postu, a pravilo preseka traži više |
-| `pazljiv-3-postovi.json` | isti nivo 3, ali gura i potiskuje iste autore kroz 3 posta. Detektor usmerenih glasova: presude na sva 4 prefiksa kohorte za 14–19 s, `shadow` 78–83%, pomeraj +11..13/−5..6 po strani (bez njega +60/−30); čitaoci i CGNAT bez presude. (Sa organskim udelom iz svih prefiksa umesto iz pojedinaca: 19–26 s, 67–75% — koordinisani prefiksi su dizali meru jedni drugima.) |
-| `razvodnjivaci-2.json` | razvodnjivači, nivo 2: zatrpavaju jedan članak nalepljenim praznim komentarima i glasaju jedni za druge. Detektor nenapisanih komentara (`compose` bez tastera): presude na sva 4 prefiksa za 16–26 s; komentari 22–39% `shadow` — ostali su napisani pre presude, pa je udeo klake u javnim komentarima članka i dalje 86% (bez detektora 94%). Deljeni šabloni ne presuđuju: sve je na jednom članku. Publika i CGNAT bez presude |
-| `smena-4.json` | nivo 4: sve tri uloge, dve smene iz istih prefiksa, rotacija 3 pseudonima, parafraze šablona (32/32, `gemma3:4b`). Usmereni glasovi: presude za 42–48 s (smena ima pola poslušnika, pa se kohorta sporije skuplja), posle toga i druga smena u `shadow`: glasovi 50–58% na obe strane, pomeraj +10..11/−5..6 umesto +24/−12; komentari klake 50–75% `shadow` (preko presude prefiksu); čitaoci i CGNAT bez presude. Parafraze sa 8 komentara po prefiksu: 4–5 šablonskih, sami deljeni šabloni bi presudili za 2 od 4 prefiksa |
-| `sabloni-3.json` / `sabloni-4.json` | samo komentari, kucani (nivo 3–4, bez glasova): isti šabloni kroz 3 članka, odnosno parafraze uz 3 pseudonima. Prolaze sve detektore glasova i nenapisanih komentara; hvata ih samo tekst — deljeni šabloni: presude na sva 4 prefiksa za 25 s (kopije), odnosno 29–34 s (parafraze); komentari 44–63%, odnosno 38–50% `shadow`; čitaoci (komentare im piše LLM) i CGNAT bez presude |
+| `pazljiv-3-postovi.json` | isti nivo 3, ali gura i potiskuje iste autore kroz 3 posta. Detektor usmerenih glasova: presude na sva 4 prefiksa kohorte za 14–19 s, `shadow` 78–83%, pomeraj +11..13/−5..6 po strani (bez njega +60/−30); čitaoci i CGNAT bez presude. (Sa organskim udelom iz svih prefiksa umesto iz pojedinaca: 19–26 s, 67–75% — koordinisani prefiksi su dizali meru jedni drugima.). **Sa naknadnim shadow-om** (`verdicts.md` §5) pomeraj pada na −1..+1 po strani: 22–30% glasova kohorte je skinuto posle presude |
+| `razvodnjivaci-2.json` | razvodnjivači, nivo 2: zatrpavaju jedan članak nalepljenim praznim komentarima i glasaju jedni za druge. Detektor nenapisanih komentara (`compose` bez tastera): presude na sva 4 prefiksa za 16–26 s; komentari 22–39% `shadow` — ostali su napisani pre presude, pa je udeo klake u javnim komentarima članka i dalje 86% (bez detektora 94%). Deljeni šabloni ne presuđuju: sve je na jednom članku. Publika i CGNAT bez presude. **Sa naknadnim shadow-om** skinuto je i 61% komentara napisanih pre presude: udeo klake u javnim komentarima članka pada na 17% (1 od 6) |
+| `smena-4.json` | nivo 4: sve tri uloge, dve smene iz istih prefiksa, rotacija 3 pseudonima, parafraze šablona (32/32, `gemma3:4b`). Usmereni glasovi: presude za 42–48 s (smena ima pola poslušnika, pa se kohorta sporije skuplja), posle toga i druga smena u `shadow`: glasovi 50–58% na obe strane, pomeraj +10..11/−5..6 umesto +24/−12; komentari klake 50–75% `shadow` (preko presude prefiksu); čitaoci i CGNAT bez presude. Parafraze sa 8 komentara po prefiksu: 4–5 šablonskih, sami deljeni šabloni bi presudili za 2 od 4 prefiksa. **Sa naknadnim shadow-om**: pomeraj 0 na obe strane (38–42% glasova kohorte skinuto posle presude), nijedan komentar klake javan ni na jednom članku; čitaoci i CGNAT bez ijedne naknadno skinute akcije |
+| `sabloni-3.json` / `sabloni-4.json` | samo komentari, kucani (nivo 3–4, bez glasova): isti šabloni kroz 3 članka, odnosno parafraze uz 3 pseudonima. Prolaze sve detektore glasova i nenapisanih komentara; hvata ih samo tekst — deljeni šabloni: presude na sva 4 prefiksa za 25 s (kopije), odnosno 29–34 s (parafraze); komentari 44–63%, odnosno 38–50% `shadow`; čitaoci (komentare im piše LLM) i CGNAT bez presude. **Sa naknadnim shadow-om** (`sabloni-3`) nijedan komentar klake ne ostaje javan, ni na jednom od 3 članka |
 
 Pokretati sa `--no-deps` posle build-a slike `klaka-core`: inače `docker compose run` ponovo
 podigne `klaka-api` sa novim (privremenim) ključem, a demo ga preuzme tek posle do 15 s —

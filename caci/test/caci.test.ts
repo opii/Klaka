@@ -60,6 +60,11 @@ test("izveštaj: shadow i pomeraj po grupi", () => {
   assert.deepEqual([amp.votes, amp.matched, amp.shadow, amp.counted], [2, 2, 1, 1]);
   const readers = rows.find((r) => r.group === "čitaoci")!;
   assert.deepEqual([readers.shadow, readers.counted], [0, 1]);
+
+  // Naknadni shadow uračunatog glasa: pomeraj pada, shadow u trenutku glasa ostaje isti.
+  const retro = { comments: new Set<string>(), votes: new Set(["null c1"]) };
+  const after = summarize(log, votes, retro).find((r) => r.group.startsWith("A pojačivači"))!;
+  assert.deepEqual([after.shadow, after.retro, after.counted], [1, 1, 0]);
 });
 
 test("adrese: svaki /24 jednom, u 198.18.0.0/15", () => {
@@ -127,6 +132,12 @@ test("komentari: spajanje po ID-ju, udeo klake u javnim komentarima članka", ()
   const dil = rows.find((r) => r.group.startsWith("A razvodnjivači"))!;
   assert.deepEqual([dil.written, dil.matched, dil.shadow], [3, 3, 1]);
   assert.deepEqual(threads(log, stored), [{ post: "p-1003", public: 3, klaka: 2, shadowed: 1 }]);
+
+  // Naknadni shadow: c20 je skinut posle presude — više nije javan.
+  const retro = { comments: new Set(["c20"]), votes: new Set<string>() };
+  const after = summarizeComments(log, stored, retro).find((r) => r.group.startsWith("A razvodnjivači"))!;
+  assert.deepEqual([after.shadow, after.retro], [1, 1]);
+  assert.deepEqual(threads(log, stored, retro), [{ post: "p-1003", public: 2, klaka: 1, shadowed: 2 }]);
 });
 
 test("parafraza: prvi red bez navodnika; prazan ili predugačak odgovor se odbacuje", () => {

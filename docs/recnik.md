@@ -56,4 +56,5 @@ Uloge poslušnika se definišu ponašanjem, ne stranom.
 | **presuda** (verdict) | zaključak engine-a o kohorti, upisan u Valkey po prefiksu, `vid`-u ili `cid`-u: `none`, `shadow`, `challenge`, sa rokom važenja ([`verdicts.md`](../core/spec/verdicts.md)) |
 | **odluka** (`decision`) | šta SDK uradi sa jednom akcijom: `count` ili `shadow` ([`sdk.md`](../core/spec/sdk.md) §2) |
 | **shadow** | akcija se čuva i prikazuje onome ko ju je napravio, ali se ne računa u javni zbir; odgovor je isti kao za `count`. Klaka nikad ne blokira |
+| **naknadni shadow** (retro) | akcije koje je kohorta napravila pre presude, u prozoru dokaza: engine ih uz presudu šalje portalu, a portal ih prebacuje u shadow — komentar više nije javan, glas izlazi iz zbira ([`verdicts.md`](../core/spec/verdicts.md) §5) |
 | **pomeraj javnog zbira** | koliko je kampanja pomerila javni brojač meta — glavno merilo uspeha klake, pa i Klake ([`caci.md`](caci.md) §7) |
