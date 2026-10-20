@@ -9,12 +9,17 @@
 //   CACI_COLLECTOR_URL klaka-collector        (http://klaka-collector:8080)
 //   CACI_PORTAL        portal                 (demo.local)
 //   CACI_POSTGRES_URL  baza sa događajima; bez nje nema izveštaja
+//   CACI_OLLAMA_URL, CACI_LLM_MODEL   parafraze za nivo 4 (http://ollama:11434, gemma3:4b)
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { parseProfile } from "./profile.js";
-import { activeVerdictNets, format, formatVerdicts, loadVerdicts, loadVotes, summarize } from "./report.js";
+import {
+  activeVerdictNets, format, formatComments, formatVerdicts, loadComments, loadVerdicts, loadVotes, summarize,
+  summarizeComments, threads,
+} from "./report.js";
 import { run, type RunLog } from "./run.js";
+import { ollama } from "./texts.js";
 
 const env = process.env;
 const RUNS = "runs";
@@ -27,6 +32,12 @@ async function main([cmd, arg]: string[]): Promise<void> {
     const portal = env.CACI_PORTAL ?? "demo.local";
     // Prefiksi sa važećom presudom iz ranijih izvođenja bi novo izvođenje „nasledilo".
     const avoid = env.CACI_POSTGRES_URL ? await activeVerdictNets(env.CACI_POSTGRES_URL, portal) : new Set<string>();
+    let paraphraser;
+    if (profile.paraphrase) {
+      paraphraser = ollama(env.CACI_OLLAMA_URL ?? "http://ollama:11434", env.CACI_LLM_MODEL ?? "gemma3:4b");
+      await paraphraser.check();
+      console.log("parafraze šablona (lokalni LLM)…");
+    }
     const log = await run(
       profile,
       {
@@ -36,16 +47,27 @@ async function main([cmd, arg]: string[]): Promise<void> {
         portal,
       },
       avoid,
+      paraphraser,
     );
     await mkdir(RUNS, { recursive: true });
     await writeFile(`${RUNS}/${log.run}.json`, JSON.stringify(log, null, 1));
-    const failed = log.actions.filter((a) => a.status !== 200).length;
-    console.log(`run ${log.run}: ${log.actions.length} glasova${failed ? `, ${failed} bez odgovora 200` : ""}`);
+    const failed = [...log.actions, ...log.comments].filter((a) => a.status !== 200).length;
+    const extra = [
+      failed && `${failed} bez odgovora 200`,
+      log.skipped && `${log.skipped} glasova razvodnjivača preskočeno (još nema vidljivog komentara druga)`,
+      log.paraphrase && `parafraza ${log.paraphrase.asked - log.paraphrase.fallback}/${log.paraphrase.asked}`,
+    ].filter(Boolean);
+    console.log(
+      `run ${log.run}: ${log.actions.length} glasova, ${log.comments.length} komentara` +
+        (extra.length ? ` (${extra.join("; ")})` : ""),
+    );
     await new Promise((r) => setTimeout(r, SETTLE_MS));
     return report(log);
   }
   if (cmd === "report" && arg) {
-    return report(JSON.parse(await readFile(`${RUNS}/${arg}.json`, "utf8")) as RunLog);
+    // Dnevnici iz ranijih verzija nemaju komentare.
+    const old = JSON.parse(await readFile(`${RUNS}/${arg}.json`, "utf8")) as Partial<RunLog> & Omit<RunLog, "comments" | "skipped">;
+    return report({ ...old, comments: old.comments ?? [], skipped: old.skipped ?? 0 });
   }
   console.error("upotreba: caci run <profil.json> | caci report <run>");
   process.exitCode = 2;
@@ -58,6 +80,9 @@ async function report(log: RunLog): Promise<void> {
     return;
   }
   console.log(format(log, summarize(log, await loadVotes(url, log))));
+  const stored = await loadComments(url, log);
+  const comments = formatComments(summarizeComments(log, stored), threads(log, stored));
+  if (comments) console.log(`\n${comments}`);
   console.log("");
   console.log(formatVerdicts(log, await loadVerdicts(url, log)));
 }

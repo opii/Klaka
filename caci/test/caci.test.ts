@@ -1,13 +1,14 @@
-// Spajanje dnevnika sa događajima iz baze, adrese i profil.
+// Spajanje dnevnika sa događajima iz baze, adrese, profil, plan poslušnika i tekstovi.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { Prefixes } from "../src/net.js";
-import { parseProfile } from "../src/profile.js";
-import { match, summarize, type StoredVote } from "../src/report.js";
-import type { Action, RunLog } from "../src/run.js";
+import { parseProfile, schedule } from "../src/profile.js";
+import { match, summarize, summarizeComments, threads, type StoredComment, type StoredVote } from "../src/report.js";
+import { operativePlan, type Action, type CommentAction, type RunLog } from "../src/run.js";
+import { clean } from "../src/texts.js";
 
 function action(over: Partial<Action>): Action {
   return {
@@ -75,9 +76,61 @@ test("adrese: svaki /24 jednom, u 198.18.0.0/15", () => {
 });
 
 test("profili iz repoa su ispravni", () => {
-  for (const f of ["rafal-0", "token-1", "svez-token-1", "browser-2", "browser-2-klik", "pazljiv-3", "pazljiv-3-postovi"]) {
-    const p = parseProfile(JSON.parse(readFileSync(new URL(`../../profiles/${f}.json`, import.meta.url), "utf8")));
-    assert.equal(p.name, f);
+  const dir = new URL("../../profiles/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+  assert.ok(files.length >= 9, files.join(", "));
+  for (const f of files) {
+    const p = parseProfile(JSON.parse(readFileSync(new URL(f, dir), "utf8")));
+    assert.equal(p.name, f.replace(/\.json$/, ""));
   }
   assert.throws(() => parseProfile({ name: "x", level: 7 }), /level/);
+});
+
+test("raspored: komentari ravnomerno među glasovima", () => {
+  assert.deepEqual(schedule(4, 2), ["vote", "vote", "comment", "vote", "vote", "comment"]);
+  assert.deepEqual(schedule(0, 2), ["comment", "comment"]);
+  assert.equal(schedule(10, 3).filter((k) => k === "comment").length, 3);
+});
+
+test("plan poslušnika: ciljevi u krug, komentari na članke ciljeva, rotacija pseudonima", () => {
+  const p = parseProfile({
+    name: "x", level: 4, roles: { amplifier: 1, diluter: 1 }, votes: 3, comments: 2, pseudonyms: 2,
+    targets: { push: ["c1", "c6"], sink: [], dilute: ["p-1003"] }, mirror: false, window_s: 1, prefixes: 1,
+    delay_ms: { median: 1, sigma: 0 }, token_wait_ms: 0,
+    audience: { readers: 0, read_ms: { median: 1, sigma: 0 }, vote_p: 0 },
+  });
+  const goals = [{ id: "c1", post: "p-1001" }, { id: "c6", post: "p-1002" }];
+  const amp = operativePlan(p, "amplifier", goals, ["t1", "t2"], 0);
+  assert.deepEqual(amp.map((t) => (t.kind === "vote" ? t.goal!.id : t.post)), ["c1", "c6", "p-1001", "c1", "p-1002"]);
+  const authors = amp.flatMap((t) => (t.kind === "comment" ? [t.author] : []));
+  assert.equal(authors.length, 2);
+  const dil = operativePlan(p, "diluter", [], ["t1", "t2"], 0);
+  assert.ok(dil.every((t) => (t.kind === "vote" ? t.goal === null && t.dir === 1 : t.post === "p-1003")));
+});
+
+test("komentari: spajanje po ID-ju, udeo klake u javnim komentarima članka", () => {
+  const c = (over: Partial<CommentAction>): CommentAction => ({
+    t: 1, role: "diluter", side: "A", level: 2, actor: "A-diluter-0", net: "198.18.1.0/24", vid: null,
+    post: "p-1003", id: "c20", author: "Goran", text: "Lep dan.", status: 200, ...over,
+  });
+  const log = {
+    run: "r",
+    comments: [c({}), c({ id: "c21" }), c({ id: "c22" }), c({ role: "reader", side: null, level: null, id: "c23" })],
+  } as RunLog;
+  const stored: StoredComment[] = [
+    { id: "c20", post: "p-1003", token: "valid", decision: "count" },
+    { id: "c21", post: "p-1003", token: "valid", decision: "count" },
+    { id: "c22", post: "p-1003", token: "valid", decision: "shadow" },
+    { id: "c23", post: "p-1003", token: "valid", decision: "count" },
+  ];
+  const rows = summarizeComments(log, stored);
+  const dil = rows.find((r) => r.group.startsWith("A razvodnjivači"))!;
+  assert.deepEqual([dil.written, dil.matched, dil.shadow], [3, 3, 1]);
+  assert.deepEqual(threads(log, stored), [{ post: "p-1003", public: 3, klaka: 2, shadowed: 1 }]);
+});
+
+test("parafraza: prvi red bez navodnika; prazan ili predugačak odgovor se odbacuje", () => {
+  assert.equal(clean({ response: '„Divan dan, pozdrav svima."\nObjašnjenje: ...' }), "Divan dan, pozdrav svima.");
+  assert.equal(clean({ response: "   " }), null);
+  assert.equal(clean({ response: "x".repeat(301) }), null);
 });

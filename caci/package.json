@@ -2,7 +2,7 @@
   "name": "klaka-caci",
   "version": "0.1.0",
   "private": true,
-  "description": "Emulator klake: poslušnici (pojačivači, ćaci) protiv demo portala, uz legitimnu publiku i izveštaj iz baze.",
+  "description": "Emulator klake: poslušnici (pojačivači, ćaci, razvodnjivači) protiv demo portala, uz legitimnu publiku i izveštaj iz baze.",
   "type": "module",
   "engines": {
     "node": ">=22"

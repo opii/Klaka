@@ -170,6 +170,9 @@ services:
       CACI_API_URL: http://localhost:${API_PORT:-18081}
       CACI_COLLECTOR_URL: http://localhost:${COLLECTOR_PORT:-18080}
       CACI_POSTGRES_URL: postgres://${POSTGRES_USER:-klaka}:${POSTGRES_PASSWORD:-klaka-dev}@localhost:${POSTGRES_PORT:-15432}/${POSTGRES_DB:-klaka}
+      # Nivo 4: parafraze šablona preko lokalnog LLM-a (profil "paraphrase": true).
+      CACI_OLLAMA_URL: http://localhost:${OLLAMA_PORT:-18434}
+      CACI_LLM_MODEL: ${KLAKA_LLM_MODEL:-gemma3:4b}
     entrypoint: ["sh", "-c", "npm ci --no-audit --no-fund --silent && npm run -s build && node dist/src/index.js \"$$@\"", "caci"]
     depends_on:
       demo: { condition: service_started }

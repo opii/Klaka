@@ -60,9 +60,11 @@ koordinisane glasove i komentare sa poznatim obeležjima, a paralelno pušta i l
 publiku. Pošto zna šta je sam uradio, daje **čist ground truth** za merenje — ono što pravi
 saobraćaj nikad ne daje (koncept §6, treći izvor oznaka).
 
-Status: nivoi 0–3 rade (uloge koje glasaju, ogledalo, čitaoci, CGNAT blizanac, izveštaj sa
+Status: nivoi 0–4 i sve tri uloge rade (glasovi i komentari, ogledalo, smene, rotacija
+pseudonima, parafraze, čitaoci koji glasaju i komentarišu, CGNAT blizanac, izveštaj sa
 presudama engine-a). Nivo 3 engine hvata kad kampanja ide kroz više postova (usmereni glasovi),
-a kampanju na jednom postu ne hvata; nivo 4 i razvodnjivači slede.
+a kampanju na jednom postu ne hvata. Komentare engine još ne ocenjuje: razvodnjivači i
+šablonski komentari prolaze, osim kad prefiks već ima presudu zbog glasova.
 
 ### 2.1. Ogledalo
 
@@ -120,24 +122,40 @@ podaci o stvarnim mrežama.
 
 ```json
 {
-  "name": "smena-rafal",
-  "level": 2,
-  "roles": { "amplifier": 6, "caci": 3, "diluter": 3 },
-  "shifts": [{ "start": "+0m", "duration": "20m" }],
-  "quota": { "votes": 40, "comments": 3 },
-  "targets": { "push": ["c1", "c3"], "sink": ["c2"] },
+  "name": "smena-4",
+  "level": 4,
+  "roles": { "amplifier": 4, "caci": 2, "diluter": 2 },
+  "votes": 6,
+  "comments": 2,
+  "targets": { "push": ["c1", "c6", "c11"], "sink": ["c2", "c7", "c9"], "dilute": ["p-1003"] },
   "mirror": true,
-  "net": { "prefixes": 2 },
-  "delay_ms": { "dist": "lognormal", "median": 400, "sigma": 0.6 },
-  "comments": { "templates": "generic", "paraphrase": false },
-  "audience": { "readers": 200, "twins": ["promotion"] }
+  "window_s": 8,
+  "prefixes": 2,
+  "shifts": { "count": 2, "duration_s": 60 },
+  "pseudonyms": 3,
+  "paraphrase": true,
+  "delay_ms": { "median": 800, "sigma": 0.4 },
+  "token_wait_ms": 2500,
+  "token_per_vote": true,
+  "dwell_ms": { "median": 1500, "sigma": 0.3 },
+  "audience": { "readers": 50, "cgnat": 20, "read_ms": { "median": 6000, "sigma": 0.6 }, "vote_p": 0.6, "comment_p": 0.15 }
 }
 ```
 
-`roles` je broj poslušnika po ulozi: pojačivači glasaju za `push` i pišu pohvale, ćaci glasaju
-protiv `sink` i pišu toksične šablone, razvodnjivači pišu prazne i skrenute komentare i
-glasaju za njih. `targets.push` / `sink` su ID-jevi komentara koje kampanja gura ili
-potiskuje; sa `"mirror": true` emulator pušta i obrnutu kampanju.
+`roles` je broj poslušnika po ulozi; svaki ima `votes` glasova i `comments` komentara,
+izmešanih. Pojačivači glasaju za `push` i pišu pohvale, ćaci glasaju protiv `sink` i pišu
+toksične šablone — komentari idu na članke tih ciljeva. Razvodnjivači pišu prazne i skrenute
+komentare na članke iz `dilute` i glasaju za komentare drugih razvodnjivača svoje strane (ako
+su vidljivi: tuđ shadow komentar se ne vidi). `targets.push` / `sink` su ID-jevi komentara sa
+bilo kog članka; sa `"mirror": true` emulator pušta i obrnutu kampanju (razvodnjivači nemaju
+stranu, pa obe strane zatrpavaju iste članke).
+
+Nivo 4 dodaje `shifts` (poslušnici raspoređeni u smene koje se smenjuju; svaki radi samo u
+svojoj), `pseudonyms` (rotacija pseudonima po komentaru) i `paraphrase` (svaki komentar je
+parafraza šablona iz lokalnog LLM-a, napravljena pre početka — kao spisak koji poslušnici
+dobiju za smenu). Publika: `readers` čitalaca (svaki čita 1–3 članka), `cgnat` čitalaca iza
+jednog prefiksa, verovatnoće glasa (`vote_p`) i komentara (`comment_p`). Komentari publike su
+sastavljeni iz delova, da se ne ponavljaju doslovno.
 
 ---
 
@@ -182,6 +200,6 @@ Nivoi 0–1 su `fetch`; nivoi 2–4 koriste Playwright (pravi Chromium). Komenta
 parafraziraju preko lokalnog Ollama servisa.
 
 ```bash
-docker compose run --rm caci run profiles/rafal.json        # jedna kampanja + publika
+docker compose run --rm caci run profiles/rafal-0.json      # jedna kampanja + publika
 docker compose run --rm caci report <run-id>               # izveštaj iz baze
 ```

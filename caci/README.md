@@ -1,7 +1,7 @@
 # caci — emulator klake
 
-Igra poslušnike klake (pojačivače i ćacije) protiv demo portala, paralelno pušta legitimnu
-publiku i meri ishod iz baze događaja. Koncept, uloge i nivoi: [`docs/caci.md`](../docs/caci.md).
+Igra poslušnike klake (pojačivače, ćacije i razvodnjivače) protiv demo portala, paralelno
+pušta legitimnu publiku i meri ishod iz baze događaja. Koncept, uloge i nivoi: [`docs/caci.md`](../docs/caci.md).
 
 ```bash
 docker compose up -d --wait demo                              # demo + klaka-api + collector + baza
@@ -10,12 +10,14 @@ docker compose run --rm caci report <run>                     # izveštaj za ran
 docker compose run --rm -w /work/caci node npm test            # testovi
 ```
 
-Ova verzija: nivoi 0 (bez tokena), 1 (token uzet direktno sa `/v1/view`) i 2–3 (pravi
-Chromium preko Playwright-a), uloge koje glasaju (pojačivač, ćaci), ogledalo (strane A i B),
-čitaoci i CGNAT blizanac (mnogo čitalaca iza jednog prefiksa). Čitaoci rade što i pravi
-browser sa snippetom: pročitaju 1–3 članka i za svaki šalju `view` i `engage` collector-u.
-Ciljevi (`targets`) su ID-jevi komentara, sa bilo kog članka; emulator sam nalazi članak.
-Razvodnjivači i nivo 4 slede.
+Ova verzija: nivoi 0 (bez tokena), 1 (token uzet direktno sa `/v1/view`) i 2–4 (pravi
+Chromium preko Playwright-a), sve tri uloge sa glasovima i komentarima, ogledalo (strane A i
+B), čitaoci i CGNAT blizanac (mnogo čitalaca iza jednog prefiksa). Čitaoci rade što i pravi
+browser sa snippetom: pročitaju 1–3 članka i za svaki šalju `view` i `engage` (a uz komentar
+i `compose`) collector-u. Ciljevi (`targets`) su ID-jevi komentara, sa bilo kog članka;
+emulator sam nalazi članak. Komentar u browseru ide kroz formu: nivo 2 ga nalepi, nivoi 3–4
+ga kucaju. Nivo 4: smene, rotacija pseudonima i parafraze šablona preko lokalnog Ollama
+servisa (`docker compose up -d --wait ollama ollama-pull`, model `KLAKA_LLM_MODEL`).
 
 Adrese su iz `198.18.0.0/15` (RFC 2544) i stižu do demo-a, `klaka-api`-ja i collector-a preko
 `X-Forwarded-For` — oni mu veruju **samo u test okruženju**. Prefiksi sa važećom presudom iz
@@ -24,7 +26,9 @@ početka". Dnevnik svakog izvođenja (ground truth) je u `runs/`, van gita. Prof
 stvarnih slučajeva idu u `profiles.local/`, takođe van gita.
 
 Izveštaj: po grupi `shadow` (za poslušnike odziv, za čitaoce lažni pozitivi), pomeraj javnog
-zbira i rezultati tokena; zatim presude engine-a — kada su nastale i koga su pogodile.
+zbira i rezultati tokena; isto za komentare, uz udeo klake u javnim komentarima članaka na
+kojima je pisala (merilo za razvodnjivače); zatim presude engine-a — kada su nastale i koga su
+pogodile.
 
 | Profil | Šta pokazuje |
 | --- | --- |
@@ -35,6 +39,8 @@ zbira i rezultati tokena; zatim presude engine-a — kada su nastale i koga su p
 | `browser-2-klik.json` | nivo 2 sa klikom i sakrivenim `webdriver`-om: klik daje unos, ali komentar nije bio u `seen` (Playwright skroluje i odmah klikne): presude za 12–22 s, `shadow` 53–77%; čitaoci i CGNAT 0% |
 | `pazljiv-3.json` | nivo 3: skroluje do komentara, zadrži se, pa klikne — **nije uhvaćen** (0%). Granica signala čitanja; kampanja je na jednom postu, a pravilo preseka traži više |
 | `pazljiv-3-postovi.json` | isti nivo 3, ali gura i potiskuje iste autore kroz 3 posta. Detektor usmerenih glasova: presude na sva 4 prefiksa kohorte za 19–26 s, `shadow` 67–75%, pomeraj +15..19/−8..10 po strani (bez njega +60/−30); čitaoci i CGNAT bez presude |
+| `razvodnjivaci-2.json` | razvodnjivači, nivo 2: zatrpavaju jedan članak nalepljenim praznim komentarima i glasaju jedni za druge. Komentare engine još ne ocenjuje: **94% javnih komentara** članka tokom izvođenja je njihovo, `shadow` 0–11%. Glasovi su raspršeni po komentarima drugova, pa samo jedan prefiks pređe prag nečitanih glasova. `compose` ih ipak razlikuje potpuno: svih 36 nalepljeno bez tastera, svih 13 komentara publike kucano |
+| `smena-4.json` | nivo 4: sve tri uloge, dve smene iz istih prefiksa, rotacija 3 pseudonima, parafraze šablona (32/32, `gemma3:4b`). Usmereni glasovi: presude za 43–48 s (smena ima pola poslušnika, pa se kohorta sporije skuplja), posle toga i druga smena u `shadow`: glasovi 58% na obe strane, pomeraj +10/−5 umesto +24/−12; komentari klake 50–75% `shadow` (samo preko presude prefiksu), udeo u javnim komentarima 25–57%; čitaoci i CGNAT bez presude |
 
 Pokretati sa `--no-deps` posle build-a slike `klaka-core`: inače `docker compose run` ponovo
 podigne `klaka-api` sa novim (privremenim) ključem, a demo ga preuzme tek posle do 15 s —
