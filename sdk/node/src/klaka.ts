@@ -1,0 +1,128 @@
+// Ceo tok jedne akcije (sdk.md §2): token → stanje u Valkey-ju → odluka → događaj.
+
+import { truncateUa, type EventSender } from "./events.js";
+import { netPrefix } from "./net.js";
+import type { Store } from "./store.js";
+import { TokenVerifier, type Policy, type TokenResult } from "./token.js";
+import { decide, parseVerdict, strongest, type Action, type Decision } from "./verdict.js";
+
+export interface KlakaConfig {
+  portal: string;
+  keys: Record<string, string>;
+  policy: Policy;
+  /** Bez njega: nema brojača upotreba, ponovljenih glasova ni presuda (kao Valkey nedostupan). */
+  store?: Store;
+  /** Bez njega se događaji ne šalju. */
+  events?: EventSender;
+  /** Budžet za Valkey (koraci 2+3); posle toga se tretira kao nedostupan. */
+  budgetMs?: number;
+  now?: () => number;
+}
+
+/** Ono što SDK treba iz HTTP zahteva; portal ga izvlači iz svog framework-a. */
+export interface ClientRequest {
+  /** Zaglavlje `X-Klaka-Token` ili polje forme `klaka_token`. */
+  token: string | null | undefined;
+  /** IP klijenta, posle pouzdanog proxy-ja. Ne napušta portal — dalje ide samo prefiks. */
+  ip: string;
+  ua: string | undefined;
+}
+
+export interface VoteInput {
+  post: string;
+  target: string;
+  targetAuthor: string | null;
+  dir: 1 | -1;
+}
+
+export interface VoteResult {
+  decision: Decision;
+  /** Iz tokena, ako je parsabilan (koraci 1–5). */
+  vid: string | null;
+  token: TokenResult;
+  uses: number | null;
+  repeat: boolean | null;
+  action: Action;
+}
+
+interface State {
+  uses: number | null;
+  repeat: boolean | null;
+  action: Action;
+}
+
+const UNAVAILABLE: State = { uses: null, repeat: null, action: "none" };
+
+export class Klaka {
+  #verifier: TokenVerifier;
+  readonly #cfg: KlakaConfig;
+  readonly #now: () => number;
+  readonly #prefix: string;
+
+  constructor(cfg: KlakaConfig) {
+    this.#cfg = cfg;
+    this.#verifier = new TokenVerifier(cfg.portal, cfg.keys, cfg.policy);
+    this.#now = cfg.now ?? Date.now;
+    this.#prefix = `klaka:v1:${cfg.portal}:`;
+  }
+
+  /** Rotacija ključeva bez novog objekta (token.md §6). */
+  setKeys(keys: Record<string, string>): void {
+    this.#verifier = new TokenVerifier(this.#cfg.portal, keys, this.#cfg.policy);
+  }
+
+  /**
+   * Glas. Ne baca izuzetak zbog Valkey-ja ni collector-a. Portal korisniku vraća isti odgovor
+   * za `count` i `shadow` (spec README, princip 3).
+   */
+  async onVote(req: ClientRequest, vote: VoteInput): Promise<VoteResult> {
+    const now = this.#now();
+    let v = this.#verifier.verify(req.token, vote.post, now);
+    const vid = v.payload?.vid ?? null;
+    const net = netPrefix(req.ip);
+
+    const state = await this.#state(vid, vote.target, net);
+    if (state.uses !== null) v = this.#verifier.checkUses(v, state.uses);
+    const decision = state.repeat === true ? "shadow" : decide(v.result, state.action);
+
+    if (this.#cfg.events && net) {
+      this.#cfg.events.send({
+        type: "vote", t: now, post: vote.post, vid, token: v.result, uses: state.uses, decision, net,
+        ua: truncateUa(req.ua), target: vote.target, target_author: vote.targetAuthor, dir: vote.dir,
+        repeat: state.repeat,
+      });
+    }
+    return { decision, vid, token: v.result, uses: state.uses, repeat: state.repeat, action: state.action };
+  }
+
+  /** Koraci 2–3 u jednom krugu do Valkey-ja, u budžetu; svaki kvar je „nedostupan" (fail-open). */
+  async #state(vid: string | null, target: string, net: string | null): Promise<State> {
+    const store = this.#cfg.store;
+    if (!store) return UNAVAILABLE;
+    const ttl = this.#verifier.policy.maxAgeMs;
+    const verdictKeys = [net && `${this.#prefix}net:${net}`, vid && `${this.#prefix}vid:${vid}`].filter(
+      (k): k is string => !!k,
+    );
+    const work = Promise.all([
+      vid ? store.incr(`${this.#prefix}uses:${vid}`, ttl) : null,
+      vid ? store.setNx(`${this.#prefix}voted:${vid}:${target}`, ttl) : null,
+      verdictKeys.length ? store.mget(verdictKeys) : [],
+    ]).then(([uses, first, verdicts]): State => {
+      const now = this.#now();
+      return {
+        uses,
+        repeat: first === null ? null : !first,
+        action: strongest(verdicts.map((raw) => parseVerdict(raw, now))),
+      };
+    });
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<State>((resolve) => {
+      timer = setTimeout(() => resolve(UNAVAILABLE), this.#cfg.budgetMs ?? 20);
+    });
+    try {
+      return await Promise.race([work.catch(() => UNAVAILABLE), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}

@@ -27,7 +27,7 @@ function fakeFetch(statuses: (number | "down")[]): { fetch: typeof fetch; calls:
 function vote(target: string): VoteEvent {
   return {
     type: "vote", t: 1, post: "p-1", vid: null, token: "missing", uses: null, decision: "shadow",
-    net: "93.87.12.0/24", ua: "UA", target, target_author: null, dir: 1,
+    net: "93.87.12.0/24", ua: "UA", target, target_author: null, dir: 1, repeat: null,
   };
 }
 

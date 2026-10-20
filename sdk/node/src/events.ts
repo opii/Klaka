@@ -23,6 +23,8 @@ export interface VoteEvent extends ActionFields {
   target: string;
   target_author: string | null;
   dir: 1 | -1;
+  /** sdk.md §2a; `null` ako prikaz nije poznat ili Valkey nije bio dostupan. */
+  repeat: boolean | null;
 }
 
 export interface CommentEvent extends ActionFields {
