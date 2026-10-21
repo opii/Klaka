@@ -6,6 +6,7 @@
 <dl>
   <dt>izdata</dt><dd>{{ created }} UTC, revizija {{ rev }}, rok {{ until }} UTC</dd>
   <dt>detektori</dt><dd>{{ detectors }}</dd>
+  {% if !cohort.is_empty() %}<dt>kohorta</dt><dd>{{ cohort }}</dd>{% endif %}
   <dt>prefiks sada</dt><dd>{{ state }}</dd>
   <dt>naknadno skinuto</dt><dd>{{ retro_comments }} komentara, {{ retro_votes }} glasova</dd>
 </dl>

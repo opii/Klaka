@@ -108,11 +108,14 @@ pub struct Signals {
     pub offtopic: Option<u64>,
     pub toxicity: Option<String>,
     pub stance: Option<String>,
+    /// Komentara u uzorku opisa (do 20; za kohortu iz grafa iz svih njenih prefiksa): brojevi po
+    /// vrsti su nad njim.
+    pub sample: Option<u64>,
 }
 
 /// Verzija pravila: uloga starije verzije se preračunava iz sačuvanog opisa (`refresh`), bez
 /// ponovnog poziva modela.
-pub const ROLE_VERSION: &str = "u4";
+pub const ROLE_VERSION: &str = "u5";
 
 /// Najmanje glasova jednog smera da bi smer bio signal uloge, i najmanji udeo među glasovima
 /// prefiksa: pojedinačan glas suprotnog smera ne pravi ulogu.
@@ -136,8 +139,11 @@ pub fn roles(s: &Signals) -> Value {
     let votes = s.votes_for + s.votes_for_cohort + s.votes_against;
     let side = |n: i64| n >= MIN_SIDE_VOTES && n as f64 >= MIN_SIDE_SHARE * votes as f64;
     let n = s.comments.max(0) as u64;
+    // Imenilac brojeva iz opisa: uzorak opisa, ne komentari prefiksa (kod kohorte iz grafa opis
+    // vidi 20 komentara, a prefiks ima 3).
+    let sample = s.sample.unwrap_or(n);
     let kind =
-        |k: Option<u64>| k.filter(|&k| k >= MIN_KIND && k as f64 >= MIN_KIND_SHARE * n as f64);
+        |k: Option<u64>| k.filter(|&k| k >= MIN_KIND && k as f64 >= MIN_KIND_SHARE * sample as f64);
     let toxicity = s.toxicity.as_deref().unwrap_or("nema");
     let stance = s.stance.as_deref();
     let concentrated = n >= 5 && s.top_post_share >= CONCENTRATED;
@@ -151,7 +157,7 @@ pub fn roles(s: &Signals) -> Value {
         ));
     }
     if let Some(k) = kind(s.praise) {
-        amplifier.push(format!("{k} od {n} komentara hvali"));
+        amplifier.push(format!("{k} od {sample} komentara hvali"));
     } else if stance == Some("podrška") {
         amplifier.push("stav komentara: podrška".to_owned());
     }
@@ -173,7 +179,7 @@ pub fn roles(s: &Signals) -> Value {
     }
     match kind(s.attack) {
         Some(k) if toxicity != "nema" => caci.push(format!(
-            "{k} od {n} komentara napada, toksičnost {toxicity}"
+            "{k} od {sample} komentara napada, toksičnost {toxicity}"
         )),
         _ if toxicity == "izrazita" => caci.push("toksičnost komentara: izrazita".to_owned()),
         _ if stance == Some("napad") && toxicity != "nema" => {
@@ -188,9 +194,9 @@ pub fn roles(s: &Signals) -> Value {
     let mut diluter = Vec::new();
     if let Some(k) = s
         .offtopic
-        .filter(|&k| k >= MIN_OFFTOPIC && (2 * k >= n || concentrated))
+        .filter(|&k| k >= MIN_OFFTOPIC && (2 * k >= sample || concentrated))
     {
-        diluter.push(format!("{k} od {n} komentara skreće sa teme"));
+        diluter.push(format!("{k} od {sample} komentara skreće sa teme"));
     }
     // Glasovi za sopstvene komentare, više nego za tuđe: kohorta gura svoj sadržaj, ne tuđe
     // ciljeve — bihevioralni potpis, i kad zatrpava više članaka i kad opisa modela nema.
@@ -332,6 +338,7 @@ pub async fn signals(
     s.audience_relevance = audience_relevance;
     let count = |k: &str| description.and_then(|d| d.get(k)).and_then(Value::as_u64);
     s.praise = count("hvale");
+    s.sample = count("uzorak");
     s.attack = count("napadaju");
     s.offtopic = count("skrecu");
     let text = |k: &str| {
@@ -443,6 +450,28 @@ mod tests {
         assert_eq!(names(&roles(&noisy)), ["pojačivač"]);
         // Skretanje u manjini, na tri članka: nije razvodnjivač.
         assert!(!names(&roles(&mixed)).contains(&"razvodnjivač"));
+    }
+
+    #[test]
+    fn shared_description_counts_are_shares_of_its_sample() {
+        // Kohorta od 16 prefiksa po 3 komentara, opis nad uzorkom od 20: 14 hvali, 2 „napada"
+        // (šum). Sa imeniocem prefiksa (3) bi 2 napada bila dve trećine — lažan ćaci.
+        let member = Signals {
+            comments: 3,
+            sample: Some(20),
+            praise: Some(14),
+            attack: Some(2),
+            offtopic: Some(0),
+            toxicity: Some("blaga".into()),
+            stance: Some("podrška".into()),
+            ..Signals::default()
+        };
+        let v = roles(&member);
+        assert_eq!(names(&v), ["pojačivač"], "{v}");
+        assert!(
+            v["razlozi"][0].as_str().unwrap().contains("14 od 20"),
+            "{v}"
+        );
     }
 
     #[test]

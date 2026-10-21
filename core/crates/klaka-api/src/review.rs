@@ -342,6 +342,8 @@ struct Detail {
     role_reasons: Vec<String>,
     role_known: bool,
     role_note: String,
+    /// Kohorta iz grafa: „#12 — 16 prefiksa"; prazno za presudu detektora po prefiksu.
+    cohort: String,
 }
 
 /// Uzorak akcija prefiksa iz prozora dokaza.
@@ -445,6 +447,18 @@ async fn detail(
     .await
     .map_err(db)?;
     let pending = summary.as_ref().is_some_and(|r| r.0 == "pending");
+    let cohort_info: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT v.cohort, (SELECT count(DISTINCT w.key) FROM verdicts w
+                           WHERE w.cohort = v.cohort AND w.action = 'shadow')
+         FROM verdicts v WHERE v.id = $1 AND v.cohort IS NOT NULL",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let cohort_info = cohort_info
+        .map(|(c, n)| format!("#{c} — {n} prefiksa, jedan opis modela za celu kohortu"))
+        .unwrap_or_default();
     let summary = summary_view(summary);
     let role: Option<Option<Value>> =
         sqlx::query_scalar("SELECT role FROM cohort_summary WHERE verdict_id = $1")
@@ -529,6 +543,7 @@ async fn detail(
         role_reasons,
         role_known,
         role_note,
+        cohort: cohort_info,
     })
 }
 

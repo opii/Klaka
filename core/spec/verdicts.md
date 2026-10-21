@@ -111,7 +111,8 @@ uspeha — preciznost reda za pregled (koncept §11).
 Uz presudu sa komentarima recenzent vidi i opis modela (šta grupa poručuje, stav, kohezija,
 toksičnost, sažetak; `docs/llm.md` §5b) i ulogu kohorte — pojačivači, ćaci, razvodnjivači, sa
 razlozima (`docs/caci.md` §1). Oba su savetodavna: presuda ne zavisi od njih, a odluka je
-recenzentova.
+recenzentova. Presude prefiksa iz iste komponente grafa (usklađeni glasovi i šabloni) nose isti
+ID kohorte, i kroz krugove; kohorta ima jedan opis.
 
 UI recenzenta je na posebnom listener-u, nikad na javnoj adresi `/v1/view`. Prijava je HTTP
 Basic (ime i token recenzenta), a odluku prima samo sa istog origin-a (browser bi Basic podatke

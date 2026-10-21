@@ -195,6 +195,13 @@ LIMIT 20;
   prozora dokaza i još 2 minuta posle presude — kohorta tada još radi (već u shadow-u), a to je
   isto ponašanje (`rasuta-3`: oko polovine glasova posle presude); radnik zato posao uzima tek
   posle tog roka. Prefiks bez komentara (samo glasovi) se preskače.
+- **Kohorta iz grafa ima jedan opis** (`cohort.rs`): usklađeni glasovi i šabloni rastu iz kruga u
+  krug, pa komponenta nasleđuje ID kohorte prefiksa koji već ima važeću presudu (kad spoji dve —
+  manji ID). Prvi posao kohorte uzima uzorak do 20 komentara iz **svih** njenih prefiksa,
+  naizmenično po prefiksu, i jednom zove model; ostali poslovi kohorte (i članovi kasnijih
+  krugova) dobijaju isti opis bez poziva. Rasuta klaka od 16 prefiksa: jedan poziv umesto 16 po
+  ~70 s, i model vidi 20 komentara umesto 3. Uz opis se čuva `uzorak`: brojevi po vrsti su nad
+  njim, pa ih uloga prefiksa poredi sa uzorkom, ne sa komentarima prefiksa.
 - **Izlaz po šemi:** `poruka` (šta grupa poručuje, „izvedena direktiva", jedna rečenica), `stav`
   (podrška, napad, skretanje, mešovito), `kohezija` (visoka, srednja, niska), `toksicnost` (nema,
   blaga, izrazita), koliko komentara `hvale`, `napadaju` i `skrecu` (uloge dele prefiks, pa jedan

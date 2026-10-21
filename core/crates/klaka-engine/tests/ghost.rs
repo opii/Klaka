@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
+use klaka_engine::cohort;
 use klaka_engine::comments::{EMBEDDING_DIM, embed_pending, template_cohorts, unwritten_cohorts};
 use klaka_engine::coordinated::coordinated_cohorts;
 use klaka_engine::describe::{DISABLED, Outcome, describe_next, settle};
@@ -148,6 +149,7 @@ async fn ghost_cohort_found_twins_and_small_groups_not() {
             net: &net,
             detector: GHOST_VIEWS,
             evidence,
+            cohort: None,
         };
         let rev = issue_net_shadow(&pool, &mut valkey, verdict(ev.clone()), &cfg(), 1_000)
             .await
@@ -574,6 +576,7 @@ async fn verdict_sends_counted_actions_of_the_prefix_to_retro() {
         net,
         detector: "test",
         evidence: json!({}),
+        cohort: None,
     };
     let issued = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), 1_000)
         .await
@@ -782,6 +785,7 @@ async fn rejected_verdict_is_neither_topped_up_nor_renewed() {
         net,
         detector: "test",
         evidence: json!({}),
+        cohort: None,
     };
     insert(vec![comment("k1")]).await.unwrap();
     let issued = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), 1_000)
@@ -1086,6 +1090,164 @@ async fn role_is_assigned_without_the_model() {
     let (st, error, role) = status(disabled).await;
     assert_eq!((st.as_str(), error.as_deref()), ("skipped", Some(DISABLED)));
     assert!(role["uloge"].is_array(), "{role}");
+
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn cohort_identity_survives_rounds_and_merges_to_the_smaller_id() {
+    let Some((admin, pool, schema)) = schema("cohort").await else {
+        return;
+    };
+    let set = |nets: &[&str]| {
+        (
+            "demo.local".to_owned(),
+            nets.iter().map(|n| n.to_string()).collect(),
+        )
+    };
+    let now = 1_000;
+    // Prvi krug: nova kohorta.
+    let first = cohort::assign(&pool, &[set(&["a", "b"])], now)
+        .await
+        .unwrap();
+    let id_ab = first[&("demo.local".into(), "a".into())];
+    assert_eq!(first[&("demo.local".into(), "b".into())], id_ab);
+    // Presude članova nose ID; drugi krug: komponenta je narasla (c) — nasleđuje ga.
+    let a = described_verdict(&pool, "a", &[]).await;
+    sqlx::query("UPDATE verdicts SET cohort = $2 WHERE id = $1")
+        .bind(a)
+        .bind(id_ab)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let second = cohort::assign(&pool, &[set(&["a", "b", "c"])], now)
+        .await
+        .unwrap();
+    assert_eq!(second[&("demo.local".into(), "c".into())], id_ab);
+    // Druga kohorta (d), pa komponenta koja spaja obe: manji ID, presuda veće prelazi na njega.
+    let other = cohort::assign(&pool, &[set(&["d"])], now).await.unwrap()
+        [&("demo.local".into(), "d".into())];
+    let d = described_verdict(&pool, "d", &[]).await;
+    sqlx::query("UPDATE verdicts SET cohort = $2 WHERE id = $1")
+        .bind(d)
+        .bind(other)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let merged = cohort::assign(&pool, &[set(&["a", "d"])], now)
+        .await
+        .unwrap();
+    let low = id_ab.min(other);
+    assert_eq!(merged[&("demo.local".into(), "d".into())], low);
+    let d_cohort: i64 = sqlx::query_scalar("SELECT cohort FROM verdicts WHERE id = $1")
+        .bind(d)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(d_cohort, low);
+
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn cohort_from_graph_is_described_once() {
+    let Some((admin, pool, schema)) = schema("shared").await else {
+        return;
+    };
+    let llm = FakeLlm {
+        reply: json!({"poruka": "Hvale.", "stav": "podrška", "kohezija": "visoka", "toksicnost": "nema",
+                      "hvale": 4, "napadaju": 0, "skrecu": 0, "sazetak": "Četiri komentara."}),
+        seen: Default::default(),
+    };
+    // Komentari oba prefiksa pre obe presude (kohorta se okupi pre nego što radnik uzme posao).
+    let comment = |net: &str, i: usize, post: &str, text: &str| Row {
+        kind: "comment",
+        t: 1,
+        vid: Some(format!("{net}-{i}")),
+        post: Some(post.to_owned()),
+        net: Some(net.to_owned()),
+        data: json!({"type": "comment", "comment": format!("{net}-k{i}"), "text": text, "decision": "count"}),
+    };
+    PgStore(pool.clone())
+        .insert(Batch {
+            portal: "demo.local".into(),
+            source: Source::Server,
+            rows: vec![
+                comment("198.18.90.0/24", 0, "p-1", "Odlično."),
+                comment("198.18.90.0/24", 1, "p-2", "Bravo."),
+                comment("198.18.91.0/24", 0, "p-1", "Tačno tako."),
+                comment("198.18.91.0/24", 1, "p-2", "Svaka čast."),
+            ],
+        })
+        .await
+        .unwrap();
+    let a = described_verdict(&pool, "198.18.90.0/24", &[]).await;
+    let b = described_verdict(&pool, "198.18.91.0/24", &[]).await;
+    let set_cohort = |ids: Vec<i64>| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query("UPDATE verdicts SET cohort = 7 WHERE id = ANY($1)")
+                .bind(ids)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+    set_cohort(vec![a, b]).await;
+
+    assert_eq!(
+        describe_next(&pool, &llm, Duration::ZERO).await.unwrap(),
+        Some((a, Outcome::Done))
+    );
+    let seen = llm.seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1);
+    assert!(
+        seen[0].contains("Bravo.") && seen[0].contains("Svaka čast."),
+        "{seen:?}"
+    );
+    // Drugi član je dobio isti opis, bez novog poziva.
+    let (status, output): (String, serde_json::Value) =
+        sqlx::query_as("SELECT status, output FROM cohort_summary WHERE verdict_id = $1")
+            .bind(b)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (status.as_str(), output["uzorak"].clone()),
+        ("done", json!(4))
+    );
+    assert_eq!(
+        describe_next(&pool, &llm, Duration::ZERO).await.unwrap(),
+        None
+    );
+
+    // Član koji je presudu dobio kasnije: preuzima opis.
+    let late = described_verdict(&pool, "198.18.92.0/24", &[("p-3", "Tako je.")]).await;
+    set_cohort(vec![late]).await;
+    assert_eq!(
+        describe_next(&pool, &llm, Duration::ZERO).await.unwrap(),
+        Some((late, Outcome::Shared))
+    );
+    assert_eq!(
+        llm.seen.lock().unwrap().len(),
+        1,
+        "i dalje jedan poziv modela"
+    );
+    let role: serde_json::Value =
+        sqlx::query_scalar("SELECT role FROM cohort_summary WHERE verdict_id = $1")
+            .bind(late)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(role["uloge"], json!(["pojačivač"]), "{role}");
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))

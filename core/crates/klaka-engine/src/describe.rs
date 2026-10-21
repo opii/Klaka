@@ -197,6 +197,8 @@ pub enum Outcome {
     Done,
     /// Prefiks nema komentara u prozoru dokaza: nema šta da se opiše.
     Skipped,
+    /// Kohorta već ima opis: preuzet, bez modela.
+    Shared,
     /// Pokušaće se ponovo.
     Retry(String),
     Failed(String),
@@ -228,22 +230,57 @@ pub async fn describe_next<P: LlmProvider>(
         return Ok(None);
     };
 
-    let (evidence,): (Value,) = sqlx::query_as("SELECT evidence FROM verdicts WHERE id = $1")
+    let (evidence, cohort): (Value, Option<i64>) =
+        sqlx::query_as("SELECT evidence, cohort FROM verdicts WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+    // Kohorta iz grafa ima jedan opis: ako ga već ima, posao ga preuzima, bez modela (rasuta
+    // klaka od 16 prefiksa bi inače bila 16 poziva po ~70 s, svaki nad 3 komentara).
+    if let Some(c) = cohort {
+        let shared: Option<Value> = sqlx::query_scalar(
+            "UPDATE cohort_summary t
+             SET status = 'done', done_at = now(), task = s.task, prompt_version = s.prompt_version,
+                 input_sha256 = s.input_sha256, model = s.model, latency_ms = s.latency_ms,
+                 output = s.output, error = NULL
+             FROM (SELECT x.* FROM cohort_summary x JOIN verdicts v ON v.id = x.verdict_id
+                   WHERE v.cohort = $2 AND x.status = 'done' AND x.output IS NOT NULL
+                   ORDER BY x.done_at LIMIT 1) s
+             WHERE t.verdict_id = $1
+             RETURNING t.output",
+        )
         .bind(id)
-        .fetch_one(pool)
+        .bind(c)
+        .fetch_optional(pool)
         .await?;
-    // Uzorak iz prozora dokaza (kao u UI-ju recenzenta).
+        if let Some(output) = shared {
+            role::assign(pool, id, Some(&output), after).await?;
+            return Ok(Some((id, Outcome::Shared)));
+        }
+    }
+    // Uzorak iz prozora dokaza (kao u UI-ju recenzenta) — za kohortu iz svih njenih prefiksa,
+    // naizmenično, da svaki prefiks bude zastupljen.
     let comments: Vec<(String, String)> = sqlx::query_as(
         "WITH v AS (
-             SELECT portal, key, created_at, coalesce((evidence->>'window_s')::float8, 600) AS w
+             SELECT portal, key, cohort, created_at,
+                    coalesce((evidence->>'window_s')::float8, 600) AS w
              FROM verdicts WHERE id = $1
+         ),
+         nets AS (
+             SELECT DISTINCT x.key FROM verdicts x, v
+             WHERE x.portal = v.portal AND x.action = 'shadow'
+               AND (x.key = v.key OR (v.cohort IS NOT NULL AND x.cohort = v.cohort))
          )
-         SELECT e.post, coalesce(e.data->>'text', '')
-         FROM events e, v
-         WHERE e.portal = v.portal AND e.net = v.key AND e.type = 'comment' AND e.source = 'server'
-           AND e.recv_at > v.created_at - make_interval(secs => v.w)
-           AND e.recv_at <= v.created_at + make_interval(secs => $3)
-         ORDER BY e.recv_at LIMIT $2",
+         SELECT post, text FROM (
+             SELECT e.post, coalesce(e.data->>'text', '') AS text, e.recv_at,
+                    row_number() OVER (PARTITION BY e.net ORDER BY e.recv_at) AS rn
+             FROM events e, v
+             WHERE e.portal = v.portal AND e.net IN (SELECT key FROM nets)
+               AND e.type = 'comment' AND e.source = 'server'
+               AND e.recv_at > v.created_at - make_interval(secs => v.w)
+               AND e.recv_at <= v.created_at + make_interval(secs => $3)
+         ) c
+         ORDER BY rn, recv_at LIMIT $2",
     )
     .bind(id)
     .bind(MAX_COMMENTS)
@@ -289,7 +326,10 @@ pub async fn describe_next<P: LlmProvider>(
         Err(e) => Err(e.to_string()),
     };
     match result {
-        Ok((json, out)) => {
+        Ok((mut json, out)) => {
+            // Brojevi po vrsti su nad uzorkom (do 20, za kohortu iz svih prefiksa): uloga ih
+            // poredi sa njim, ne sa brojem komentara prefiksa.
+            json["uzorak"] = comments.len().into();
             sqlx::query(
                 "UPDATE cohort_summary SET status = 'done', done_at = now(), task = $2,
                         prompt_version = $3, input_sha256 = $4, model = $5, latency_ms = $6,
@@ -306,6 +346,31 @@ pub async fn describe_next<P: LlmProvider>(
             .execute(pool)
             .await?;
             role::assign(pool, id, Some(&json), after).await?;
+            // Isti opis za ostale poslove kohorte koji čekaju; uloga svakom po njegovim signalima.
+            if let Some(c) = cohort {
+                let siblings: Vec<i64> = sqlx::query_scalar(
+                    "UPDATE cohort_summary t
+                     SET status = 'done', done_at = now(), task = $3, prompt_version = $4,
+                         input_sha256 = $5, model = $6, latency_ms = $7, output = $8, error = NULL
+                     FROM verdicts v
+                     WHERE v.id = t.verdict_id AND v.cohort = $1 AND t.status = 'pending'
+                       AND t.verdict_id <> $2
+                     RETURNING t.verdict_id",
+                )
+                .bind(c)
+                .bind(id)
+                .bind(TASK)
+                .bind(PROMPT_VERSION)
+                .bind(&sha)
+                .bind(&out.model)
+                .bind(i64::try_from(out.latency_ms).unwrap_or(i64::MAX))
+                .bind(&json)
+                .fetch_all(pool)
+                .await?;
+                for sibling in siblings {
+                    role::assign(pool, sibling, Some(&json), after).await?;
+                }
+            }
             Ok(Some((id, Outcome::Done)))
         }
         Err(msg) if attempts < MAX_ATTEMPTS => {

@@ -23,6 +23,7 @@
 //! čitaoci iza istog prefiksa čitaju, klikću i glasaju raspršeno kao i svi ostali, pa ne ulaze
 //! u kohortu.
 
+pub mod cohort;
 pub mod comments;
 pub mod coordinated;
 pub mod describe;
@@ -418,6 +419,8 @@ pub struct NetVerdict<'a> {
     /// Detektori čiji su nalazi u presudi ([`detectors`]).
     pub detector: &'a str,
     pub evidence: Value,
+    /// Kohorta iz grafa (`cohort::assign`); presude detektora po prefiksu je nemaju.
+    pub cohort: Option<i64>,
 }
 
 /// Akcija za naknadni shadow (verdicts.md §5): komentar po ID-ju, glas po (`vid`, cilj).
@@ -489,6 +492,7 @@ pub async fn issue_net_shadow(
         net,
         detector,
         mut evidence,
+        cohort,
     } = verdict;
     let ttl_ms = i64::try_from(cfg.ttl.as_millis()).unwrap_or(i64::MAX);
     let mut tx = pool.begin().await.map_err(IssueError::Db)?;
@@ -513,6 +517,16 @@ pub async fn issue_net_shadow(
     let last = last.map(|(id, until, rev, _)| (id, until, rev));
     // Važeća presuda se dopunjuje; inače nova (ili obnova).
     let active = last.filter(|&(_, until, _)| until - now_ms > ttl_ms / 2);
+    // Prefiks koji je presudu dobio pre nego što ga je graf uvrstio u kohortu: kohorta mu se
+    // dopisuje (jedan opis i odluka recenzenta za celu kohortu).
+    if let (Some((id, _, _)), Some(c)) = (active, cohort) {
+        sqlx::query("UPDATE verdicts SET cohort = $2 WHERE id = $1 AND cohort IS NULL")
+            .bind(id)
+            .bind(c)
+            .execute(&mut *tx)
+            .await
+            .map_err(IssueError::Db)?;
+    }
 
     // Bez važeće presude ($4 je NULL) sve uračunate akcije iz prozora; sa njom one kojih još
     // nema u njenom naknadnom shadow-u (komentar po ID-ju, glas po (vid, cilj)).
@@ -556,8 +570,8 @@ pub async fn issue_net_shadow(
                 );
             }
             let (id,): (i64,) = sqlx::query_as(
-                "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence)
-                 VALUES ($1, 'net', $2, 'shadow', $3, $4, $5, $6)
+                "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence, cohort)
+                 VALUES ($1, 'net', $2, 'shadow', $3, $4, $5, $6, $7)
                  RETURNING id",
             )
             .bind(portal)
@@ -566,6 +580,7 @@ pub async fn issue_net_shadow(
             .bind(rev)
             .bind(detector)
             .bind(evidence)
+            .bind(cohort)
             .fetch_one(&mut *tx)
             .await
             .map_err(IssueError::Db)?;

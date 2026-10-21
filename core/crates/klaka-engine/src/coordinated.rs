@@ -61,6 +61,8 @@ pub struct Member {
     pub partners: i64,
     /// Veličina komponente (kohorte) kojoj pripada.
     pub cohort: i64,
+    /// Komponenta u ovom krugu: prefiksi iste kohorte imaju isti broj (`cohort::assign`).
+    pub component: usize,
     /// Različitih postova u njegovim ivicama.
     pub posts: i64,
 }
@@ -276,6 +278,7 @@ pub(crate) fn members(
             elements: elements[n] as i64,
             partners: partners.len() as i64,
             cohort: sizes[component[n]] as i64,
+            component: component[n],
             posts: posts.len() as i64,
         });
     }

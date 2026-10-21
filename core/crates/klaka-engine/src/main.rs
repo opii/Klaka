@@ -32,6 +32,7 @@ use std::str::FromStr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use klaka_db::MIGRATOR;
+use klaka_engine::cohort;
 use klaka_engine::comments::{
     COORDINATED_TEMPLATES, SHARED_TEMPLATES, UNWRITTEN_COMMENTS, embed_pending, purge_embeddings,
     template_cohorts, unwritten_cohorts,
@@ -166,18 +167,32 @@ async fn main() {
         let coordinated = coordinated_cohorts(&pool, &cfg).await;
         let mut graph = nets(coordinated.as_deref().unwrap_or_default());
         let model = embedder.as_ref().map(|e| e.model());
+        let mut template_members = Vec::new();
         match template_cohorts(&pool, &cfg, model, &graph).await {
             Ok(t) => {
                 graph.extend(nets(&t.members));
                 findings.extend(t.cohorts.into_iter().map(Finding::from));
                 findings.extend(
                     t.members
-                        .into_iter()
+                        .iter()
+                        .cloned()
                         .map(|m| m.finding(COORDINATED_TEMPLATES)),
                 );
+                template_members = t.members;
             }
             Err(e) => eprintln!("klaka-engine: detektor {SHARED_TEMPLATES}: {e}"),
         }
+        // Kohorte grafova kroz krugove: jedan opis i jedna odluka recenzenta po kohorti.
+        let groups = cohort::groups(&[
+            coordinated.as_deref().unwrap_or_default(),
+            &template_members,
+        ]);
+        let cohort_of = cohort::assign(&pool, &groups, now_ms())
+            .await
+            .unwrap_or_else(|e| {
+                warn_once(&mut role_error, format!("kohorte: {e}"));
+                Default::default()
+            });
         collect(COORDINATED_VOTES, coordinated, &mut findings);
         collect(
             FOCUSED_VOTES,
@@ -195,6 +210,7 @@ async fn main() {
                 net: &net,
                 detector: &detector,
                 evidence,
+                cohort: cohort_of.get(&(portal.clone(), net.clone())).copied(),
             };
             match issue_net_shadow(&pool, &mut valkey, verdict, &cfg, now_ms()).await {
                 Ok(Some(i)) if i.top_up => eprintln!(
@@ -257,6 +273,9 @@ async fn describe_worker(pool: PgPool, url: String, model: String) {
                 match outcome {
                     Outcome::Done => eprintln!("klaka-engine: opis kohorte za presudu {id}"),
                     Outcome::Skipped => {}
+                    Outcome::Shared => {
+                        eprintln!("klaka-engine: opis kohorte za presudu {id} (zajednički)")
+                    }
                     Outcome::Retry(e) => {
                         eprintln!("klaka-engine: opis kohorte {id}: {e} — ponovo kasnije")
                     }
