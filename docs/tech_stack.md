@@ -37,12 +37,14 @@ Python se ne koristi u našem sistemu.
 | `klaka-core` | lib | šema događaja, format tokena (Ed25519), IP → /24, ASN lookup | `serde`, `ed25519-dalek` |
 | `klaka-db` | lib | migracije, tabela `events` (particije po danu), upis — zajedničko za collector i api | `sqlx` |
 | `klaka-collector` | bin | prima događaje iz browsera i SDK-ova, upisuje u PostgreSQL | `axum`, `tokio`, `sqlx` |
-| `klaka-engine` | bin | graf kohorte, MinHash/LSH, change-point, smene, presude | `petgraph`; Louvain i Serrano backbone pišemo sami |
+| `klaka-engine` | bin | 7 detektora kohorti (po prefiksu i preko grafa prefiksa: MinHash/LSH, `pgvector` HNSW kNN, Jaccard + $k$-jezgro), presude i naknadni shadow u Valkey, pozadinski radnik za opis (`describe.rs`) i ulogu kohorte (`role.rs`) | `tokio`, `sqlx`, `redis` |
 | `klaka-llm` | lib | `trait LlmProvider` + `trait Embedder`; podrazumevano Ollama (lokalno, besplatno), opciono Claude (Anthropic API / Vertex AI); ruter po klasi privatnosti — vidi [`llm.md`](llm.md) | `reqwest`, `serde_json` |
 | `klaka-api` | bin | izdavanje tokena pregleda, upravljanje presudama, UI recenzenta | `axum`, `askama`, `sqlx` |
 
-Louvain (~200–300 linija) i Serrano disparity filter (~50) pišemo sami: deterministički su,
-potpuno razumljivi i objašnjivi kad se nalaz ospori.
+Grafovski algoritmi u `klaka-engine`-u (2-stepeno susedstvo šablona, Jaccard sličnost, $k$-jezgro
+i komponente povezanosti u `coordinated.rs` i `comments.rs`) pisani su direktno u čistom Rust-u:
+deterministički su, rade u nekoliko milisekundi nad prozorom i potpuno su objašnjivi kad se nalaz
+ospori.
 
 ---
 
@@ -79,11 +81,12 @@ uključuje pri inicijalizaciji (`core/deploy/postgres-init/`), šemu vode migrac
 
 **Zašto nema graf baze (npr. Neo4j):** graf je ovde **međukorak računanja**, a ne predmet
 slobodnog istraživanja:
-PostgreSQL agregira ivice (`GROUP BY` akter × akter nad deljenim postovima u prozoru),
-`klaka-engine` drži graf u memoriji (`petgraph`) i računa zajednice, a trajni rezultati
-(kohorte, članstva, dokazi) idu u PostgreSQL. Graf jednog prozora staje u memoriju. Neo4j bi
-dodao servis i JVM bez računske koristi. Vraćamo ga u razmatranje tek ako recenzentima zatreba
-slobodno istraživanje grafa koje UI ne pokriva.
+PostgreSQL vraća događaje i HNSW kNN parove iz klizećeg prozora, `klaka-engine` u memoriji
+sklapa grafove usklađenih glasova (`coordinated.rs`) i šablona (`comments.rs`, susedstvo na 2
+koraka) i nalazi kohorte preko Jaccard sličnosti, $k$-jezgra i komponenti povezanosti za nekoliko
+milisekundi, a trajni rezultati (presude, dokazi, naknadni shadow) idu u PostgreSQL. Graf jednog
+prozora lako staje u memoriju. Neo4j bi dodao servis i JVM bez računske koristi. Vraćamo ga u
+razmatranje tek ako recenzentima zatreba slobodno istraživanje grafa koje UI ne pokriva.
 
 Razvoj: `docker-compose.yaml` u korenu (sve u kontejnerima, uključujući Rust i Node alate). Self-hosted produkcija: `core/deploy/` (kasnije). Za početak bez reda poruka: collector piše u
 PostgreSQL, engine čita prozore. NATS tek kad zatreba.

@@ -5,13 +5,28 @@ presude. Gde pojam ima ime u kodu ili protokolu, ono je u zagradi.
 
 ## Lanac
 
+```mermaid
+flowchart LR
+    A["Akteri\n(Poslušnici i Publika)"] --> B["Prikaz (vid)\ni Akcija (glas, komentar)"]
+    B --> C["7 detektora\npo dimenzijama"]
+    C --> D["Kohorta\n(uz filter legitimnog blizanca)"]
+    D --> E["Presuda u Valkey-ju\n(shadow + naknadni retro)"]
+    E --> F["U pozadini: Opis (LLM)\ni Uloga (pojačivač / ćaci / razvodnjivač)"]
+    F --> G["Recenzent\n(Potvrdi / Odbaci -> none)"]
+```
+
 1. **Poslušnici** i **publika** prave **akcije** na **metama**; uz akcije stižu i ostali
    **događaji** (prikaz, čitanje, pisanje).
-2. **Detektori** grupišu akcije u **kohorte**, svaki po jednoj **dimenziji**.
-3. **Engine** traži **presek** kohorti — iste akcije u kohortama više dimenzija, na istim metama,
-   kroz više postova — i odbacuje one koje objašnjava **legitimni blizanac**.
-4. **Recenzent** potvrđuje ili odbacuje kohortu; LLM mu opisuje dokaze, ne odlučuje.
-5. Potvrđena kohorta postaje **presuda**; SDK je primenjuje kao **odluku** za svaku sledeću akciju.
+2. **Detektori** u `klaka-engine`-u grupišu akcije u **kohorte**, po mrežnom prefiksu i drugoj
+   nezavisnoj **dimenziji** (ili preko grafa prefiksa za rasutu klaku).
+3. **Engine** odbacuje obrasce koje objašnjava **legitimni blizanac** (CGNAT, push promocija,
+   komentari na istom članku) i za svaku nađenu kohortu odmah upisuje **presudu** (`shadow`) i
+   **naknadni shadow** (`retro`) u Valkey; SDK presudu primenjuje kao **odluku** za svaku
+   sledeću akciju.
+4. U pozadini, radnik u `klaka-engine`-u pomoću lokalnog LLM-a pravi savetodavni **opis kohorte**
+   i dodeljuje joj **ulogu kohorte** (pojačivač, ćaci, razvodnjivač).
+5. **Recenzent** u UI-ju za pregled potvrđuje ili odbacuje presudu; odbacivanjem zaustavlja
+   presudu prefiksa (`none` u Valkey-ju) i daje oznake za merenje preciznosti.
 
 ## Akteri
 
