@@ -737,3 +737,98 @@ async fn coordinated_votes_from_db_with_promotion() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn rejected_verdict_is_neither_topped_up_nor_renewed() {
+    let Some((admin, pool, schema)) = schema("rejected").await else {
+        return;
+    };
+    let Ok(url) = std::env::var("KLAKA_TEST_VALKEY_URL") else {
+        eprintln!("KLAKA_TEST_VALKEY_URL nije postavljen — preskačem");
+        return;
+    };
+    let mut valkey = redis::Client::open(url)
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let store = PgStore(pool.clone());
+    let portal = format!("{schema}.local");
+    let net = "198.18.43.0/24";
+    let comment = |id: &str| Row {
+        kind: "comment",
+        t: 1,
+        vid: Some(format!("v-{id}")),
+        post: Some("p-1".to_owned()),
+        net: Some(net.to_owned()),
+        data: json!({"type": "comment", "comment": id, "text": "x", "decision": "count"}),
+    };
+    let insert = |rows| {
+        store.insert(Batch {
+            portal: portal.clone(),
+            source: Source::Server,
+            rows,
+        })
+    };
+    let verdict = || NetVerdict {
+        portal: &portal,
+        net,
+        detector: "test",
+        evidence: json!({}),
+    };
+    insert(vec![comment("k1")]).await.unwrap();
+    let issued = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), 1_000)
+        .await
+        .unwrap();
+    assert_eq!(issued.map(|i| i.rev), Some(1));
+
+    // Recenzent odbaci presudu (kao klaka-api): `none` do isteka roka.
+    let until = 1_000 + 3_600_000;
+    sqlx::query(
+        "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence)
+         VALUES ($1, 'net', $2, 'none', $3, 2, 'review', '{}')",
+    )
+    .bind(&portal)
+    .bind(net)
+    .bind(until)
+    .execute(&pool)
+    .await
+    .unwrap();
+    // Posle odbacivanja portal legitimno uračunava nove akcije prefiksa; dokazi su i dalje u
+    // prozoru, pa engine opet nalazi prefiks — ali ne sme ni da dopuni ni da obnovi presudu.
+    insert(vec![comment("k2")]).await.unwrap();
+    for now in [2_000, until - 1_000] {
+        let again = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), now)
+            .await
+            .unwrap();
+        assert_eq!(again, None, "u {now} ms");
+    }
+    let retro: Vec<String> = sqlx::query_scalar("SELECT comment FROM verdict_retro")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(retro, ["k1"]);
+    let stream: usize = redis::cmd("XLEN")
+        .arg(retro_key(&portal))
+        .query_async(&mut valkey)
+        .await
+        .unwrap();
+    assert_eq!(stream, 1);
+    // Kad `none` istekne, a prefiks je i dalje nalaz, presuda je nova revizija.
+    let renewed = issue_net_shadow(&pool, &mut valkey, verdict(), &cfg(), until + 1)
+        .await
+        .unwrap();
+    assert_eq!(renewed.map(|i| i.rev), Some(3));
+
+    redis::cmd("DEL")
+        .arg(retro_key(&portal))
+        .arg(net_key(&portal, net))
+        .query_async::<()>(&mut valkey)
+        .await
+        .unwrap();
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}

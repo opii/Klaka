@@ -380,14 +380,7 @@ pub fn detectors(findings: &[Finding]) -> String {
     names.into_iter().collect::<Vec<_>>().join("+")
 }
 
-/// Vrednost ključa presude u Valkey-ju (verdicts.md §2) — bez razloga i dokaza.
-pub fn verdict_value(action: &str, until_ms: i64, rev: i32) -> String {
-    json!({"action": action, "until_ms": until_ms, "rev": rev}).to_string()
-}
-
-pub fn net_key(portal: &str, net: &str) -> String {
-    format!("klaka:v1:{portal}:net:{net}")
-}
+pub use klaka_core::verdict::{net_key, value as verdict_value};
 
 /// Jedna presuda po prefiksu, sa dokazima svih njegovih nalaza.
 pub fn group_by_net(findings: Vec<Finding>) -> BTreeMap<(String, String), Vec<Finding>> {
@@ -480,7 +473,8 @@ pub struct Issued {
 /// naknadnom shadow-u idu pod istu presudu. To su akcije koje je portal prihvatio pre nego što
 /// je presuda stigla do Valkey-ja, a u bazu su stigle posle nje (SDK šalje događaje u paketima),
 /// ili prihvaćene dok portal nije video Valkey. Bez poređenja satova portala i baze. Kad nema
-/// šta da dopuni, ne radi ništa (`Ok(None)`).
+/// šta da dopuni, ne radi ništa (`Ok(None)`) — kao ni dok važi odluka recenzenta da presudu
+/// odbaci (`none`, verdicts.md §6).
 pub async fn issue_net_shadow(
     pool: &PgPool,
     valkey: &mut MultiplexedConnection,
@@ -496,8 +490,8 @@ pub async fn issue_net_shadow(
     } = verdict;
     let ttl_ms = i64::try_from(cfg.ttl.as_millis()).unwrap_or(i64::MAX);
     let mut tx = pool.begin().await.map_err(IssueError::Db)?;
-    let last: Option<(i64, i64, i32)> = sqlx::query_as(
-        "SELECT id, until_ms, rev FROM verdicts
+    let last: Option<(i64, i64, i32, String)> = sqlx::query_as(
+        "SELECT id, until_ms, rev, action FROM verdicts
          WHERE portal = $1 AND key_kind = 'net' AND key = $2
          ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
     )
@@ -506,6 +500,15 @@ pub async fn issue_net_shadow(
     .fetch_optional(&mut *tx)
     .await
     .map_err(IssueError::Db)?;
+    // Recenzent je presudu odbacio (`none`, verdicts.md §6): do isteka se ni ne obnavlja ni ne
+    // dopunjuje, i kad detektor i dalje nalazi prefiks.
+    if last
+        .as_ref()
+        .is_some_and(|(_, until, _, action)| action == "none" && *until > now_ms)
+    {
+        return Ok(None);
+    }
+    let last = last.map(|(id, until, rev, _)| (id, until, rev));
     // Važeća presuda se dopunjuje; inače nova (ili obnova).
     let active = last.filter(|&(_, until, _)| until - now_ms > ttl_ms / 2);
 
@@ -766,19 +769,5 @@ mod tests {
             lift("198.18.2.0/24", 1).unwrap(),
         );
         assert!((a - b).abs() < 1e-9 * a, "{a} vs {b}");
-    }
-
-    #[test]
-    fn verdict_value_matches_spec() {
-        let v: Value =
-            serde_json::from_str(&verdict_value("shadow", 1_792_003_600_000, 7)).unwrap();
-        assert_eq!(
-            v,
-            json!({"action": "shadow", "until_ms": 1_792_003_600_000_i64, "rev": 7})
-        );
-        assert_eq!(
-            net_key("demo.local", "93.87.12.0/24"),
-            "klaka:v1:demo.local:net:93.87.12.0/24"
-        );
     }
 }

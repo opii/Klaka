@@ -45,7 +45,8 @@ docker compose run --rm caci run profiles/rafal-0.json   # emulator klake protiv
 ```
 
 Prvo pokretanje preuzima Ollama modele (nekoliko GB). Podešavanja (lozinke, portovi na hostu,
-modeli): kopirati `.env.example` u `.env`.
+modeli): kopirati `.env.example` u `.env`. Red za pregled presuda (UI recenzenta) je na
+http://localhost:18083, kad je u `.env` zadat bar jedan recenzent (`KLAKA_REVIEW_TOKENS`).
 
 ## Struktura
 

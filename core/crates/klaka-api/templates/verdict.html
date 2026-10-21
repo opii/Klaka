@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Presuda {{ id }} — {{ net }}{% endblock %}
+{% block content %}
+<p><a href="/">← red za pregled</a></p>
+<h2>Presuda {{ id }}: <code>{{ net }}</code> na {{ portal }}</h2>
+<dl>
+  <dt>izdata</dt><dd>{{ created }} UTC, revizija {{ rev }}, rok {{ until }} UTC</dd>
+  <dt>detektori</dt><dd>{{ detectors }}</dd>
+  <dt>prefiks sada</dt><dd>{{ state }}</dd>
+  <dt>naknadno skinuto</dt><dd>{{ retro_comments }} komentara, {{ retro_votes }} glasova</dd>
+</dl>
+
+<form class="decide" method="post" action="/presude/{{ id }}/odluka">
+  <input type="text" name="note" maxlength="500" placeholder="napomena (nije obavezna)">
+  <button name="decision" value="confirm">Potvrdi</button>
+  <button name="decision" value="reject">Odbaci</button>
+</form>
+<p class="muted">
+  Odbacivanje zaustavlja presudu prefiksa do isteka roka (engine je ne obnavlja); naknadno
+  skinute akcije ostaju skinute.
+</p>
+
+{% if !reviews.is_empty() %}
+<h2>Odluke</h2>
+<table>
+  {% for r in reviews %}
+  <tr><td>{{ r.at }} UTC</td><td>{{ r.reviewer }} {{ r.decision }}</td><td>{{ r.note }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>Dokazi</h2>
+{% for c in cohorts %}
+<h3>{{ c.detector }}</h3>
+<dl>
+  {% for f in c.fields %}
+  <dt>{{ f.0 }}</dt><dd>{{ f.1 }}</dd>
+  {% endfor %}
+</dl>
+{% endfor %}
+
+<h2>Komentari prefiksa u prozoru dokaza <span class="muted">({{ window_s }} s pre presude, najviše 50)</span></h2>
+{% if comments.is_empty() %}
+<p class="muted">Nema komentara.</p>
+{% else %}
+<div class="scroll">
+<table>
+  <thead><tr><th>Vreme</th><th>Post</th><th>Autor</th><th>Tekst</th><th>Odluka</th></tr></thead>
+  <tbody>
+  {% for c in comments %}
+    <tr>
+      <td>{{ c.at }}</td><td>{{ c.post }}</td><td>{{ c.author }}</td><td>{{ c.text }}</td>
+      <td>{{ c.decision }}{% if c.retro %} <span class="tag warn">naknadno skinut</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2>Glasovi prefiksa u prozoru dokaza</h2>
+{% if votes.is_empty() %}
+<p class="muted">Nema glasova.</p>
+{% else %}
+<table>
+  <thead><tr><th>Post</th><th>Cilj</th><th>Smer</th><th>Glasova</th></tr></thead>
+  <tbody>
+  {% for v in votes %}
+    <tr><td>{{ v.post }}</td><td>{{ v.target }}</td><td>{{ v.dir }}</td><td class="n">{{ v.votes }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

@@ -84,8 +84,8 @@ presude se ne menja, a prozor se ne širi unazad.
 
 Obrada MORA biti idempotentna: isti unos može stići više puta (obnova presude, više instanci
 portala). Nepoznat ID se preskače. Naknadni shadow je **trajan** — ne vraća se kad presuda
-istekne, kao ni odluka donesena u trenutku akcije. Poništavanje (recenzent odbaci kohortu) v1 ne
-podržava.
+istekne, kao ni odluka donesena u trenutku akcije. Poništavanje (recenzent odbaci kohortu, §6) v1
+ne podržava.
 
 **Kolateral** je isti kao kod presude unapred: legitimni korisnici istog prefiksa u prozoru dokaza
 izgube svoje akcije (izmereno emulatorom: čitalac koji je par minuta ranije koristio prefiks
@@ -93,3 +93,22 @@ kasnije kohorte). Zato presuda po prefiksu i dalje traži drugu nezavisnu dimenz
 prozor naknadnog shadow-a nije duži od prozora u kome je engine video dokaze.
 
 **Namerno nema:** razloga, prefiksa, presude. Unos kaže samo koju akciju skinuti, ne i zašto.
+
+## 6. Pregled (recenzent)
+
+Engine presuđuje sam (§4); recenzent u `klaka-api` (red za pregled) presudu **potvrđuje** ili
+**odbacuje**. Odluka ide u audit (`verdict_review`: ko, kada, napomena) i daje oznake za meru
+uspeha — preciznost reda za pregled (koncept §11).
+
+- **Potvrda** je samo oznaka.
+- **Odbacivanje** zaustavlja presudu prefiksa ako još važi: nova revizija `none` u Valkey-ju i u
+  audit-u, sa rokom koliko je trajala odbačena presuda. Dok `none` važi, engine prefiks ni ne
+  presuđuje ponovo ni ne dopunjuje naknadni shadow (§5), i kad ga detektor i dalje nalazi —
+  inače bi akcije koje portal posle odbacivanja legitimno uračuna otišle u naknadni shadow. Kad
+  `none` istekne, a prefiks je i dalje nalaz, engine izdaje novu presudu, i ona ide u red.
+- Naknadno skinute akcije ostaju skinute (§5).
+
+UI recenzenta je na posebnom listener-u, nikad na javnoj adresi `/v1/view`. Prijava je HTTP
+Basic (ime i token recenzenta), a odluku prima samo sa istog origin-a (browser bi Basic podatke
+poslao i sa tuđe stranice). Bez JavaScript-a; sadržaj od korisnika portala (tekst komentara,
+pseudonim) se escape-uje.

@@ -1,6 +1,8 @@
-//! Izdavanje tokena pregleda (`spec/token.md` §5) i objava javnih ključeva.
+//! Izdavanje tokena pregleda (`spec/token.md` §5) i objava javnih ključeva; UI recenzenta
+//! (`review`) na posebnom listener-u.
 
 pub mod issued;
+pub mod review;
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="sr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Klaka — red za pregled{% endblock %}</title>
+<style>
+  :root { color-scheme: light dark; --muted: #666; --line: #ddd; --warn: #a33; --ok: #276; }
+  @media (prefers-color-scheme: dark) { :root { --muted: #aaa; --line: #444; --warn: #e88; --ok: #8c9; } }
+  body { font: 15px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 72rem; padding: 1rem; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+           border-bottom: 1px solid var(--line); margin-bottom: 1rem; }
+  h1 { font-size: 1.3rem; margin: .4rem 0; }
+  h2 { font-size: 1.05rem; margin: 1.6rem 0 .4rem; }
+  h3 { font-size: 1rem; font-weight: 600; margin: 1rem 0 .3rem; }
+  a { color: inherit; }
+  .muted { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; padding: 0 .4rem; border: 1px solid var(--line); border-radius: .3rem; }
+  .warn { color: var(--warn); }
+  .ok { color: var(--ok); }
+  form.decide { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .6rem 0; }
+  form.decide input[type=text] { flex: 1 1 20rem; padding: .3rem; }
+  button { padding: .35rem .9rem; cursor: pointer; }
+  .scroll { overflow-x: auto; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="/">Klaka — red za pregled</a></h1>
+  <span class="muted">recenzent: {{ reviewer }}</span>
+</header>
+{% block content %}{% endblock %}
+</body>
+</html>

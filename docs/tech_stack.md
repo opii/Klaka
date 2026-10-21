@@ -24,7 +24,7 @@
 | naš sistem | **Rust** | parsira neproveren ulaz (događaji koje napadač može da falsifikuje, tekst komentara); memorijska bezbednost bez `unsafe` |
 | klijentska biblioteka | **TypeScript**, nula zavisnosti | senzor bez UI-ja; framework ne donosi ništa, a povećava bundle i kod koji napadač čita |
 | SDK-ovi | **PHP, Node (TypeScript), Go, Java** | jezici portala; čisti, bez FFI (vidi §4) |
-| UI recenzenta | **htmx + askama** (server-side, iz `klaka-api`) | micro, bez frontend build-a; askama automatski escape-uje |
+| UI recenzenta | **askama** + obične HTML forme (server-side, iz `klaka-api`, poseban port); htmx kad zatreba delimično osvežavanje | micro, bez frontend build-a i bez JavaScript-a (CSP ga zabranjuje); askama automatski escape-uje |
 
 Python se ne koristi u našem sistemu.
 

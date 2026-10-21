@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<p>
+  Preciznost reda: <strong>{{ precision }}</strong>
+  <span class="muted">(potvrđenih {{ confirmed }}, odbačenih {{ rejected }}; poslednja odluka po presudi)</span>
+</p>
+<p>
+  {% if all %}
+  Sve presude · <a href="/">samo nepregledane</a>
+  {% else %}
+  Nepregledane presude · <a href="/?sve=1">sve</a>
+  {% endif %}
+</p>
+{% if rows.is_empty() %}
+<p class="muted">Nema presuda za pregled.</p>
+{% else %}
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Presuda (UTC)</th><th>Portal</th><th>Prefiks</th><th>Detektori</th>
+        <th>Naknadno skinuto</th><th>Pregled</th></tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="/presude/{{ r.id }}">{{ r.created }}</a></td>
+      <td>{{ r.portal }}</td>
+      <td><code>{{ r.net }}</code></td>
+      <td>{{ r.detectors }}</td>
+      <td class="n">{{ r.retro_comments }} kom. · {{ r.retro_votes }} gl.</td>
+      <td>{{ r.status }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

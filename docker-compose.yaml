@@ -96,12 +96,15 @@ services:
   klaka-api:
     <<: *core
     command: ["klaka-api"]
-    ports: ["127.0.0.1:${API_PORT:-18081}:8081"]
+    # 8083: UI recenzenta — poseban listener, samo na 127.0.0.1 (verdicts.md §6).
+    ports: ["127.0.0.1:${API_PORT:-18081}:8081", "127.0.0.1:${REVIEW_PORT:-18083}:8083"]
     environment:
       <<: *core-env
       KLAKA_PORTALS: ${KLAKA_PORTALS:-demo.local}
       KLAKA_SIGNING_KID: ${KLAKA_SIGNING_KID:-dev-1}
       KLAKA_SIGNING_SEED: ${KLAKA_SIGNING_SEED:-}
+      # Bez recenzenata nema UI-ja recenzenta.
+      KLAKA_REVIEW_TOKENS: ${KLAKA_REVIEW_TOKENS:-}
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
 
