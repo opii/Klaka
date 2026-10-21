@@ -11,15 +11,15 @@ Arhitektura i izbor tehnologija: [`../docs/tech_stack.md`](../docs/tech_stack.md
 ```mermaid
 flowchart TB
     subgraph Bins["Izvršni servisi (bin)"]
-        COL["klaka-collector (:8080)\nPrijem događaja"]
-        API["klaka-api (:8081 / :8083)\nTokeni pregleda i UI recenzenta"]
-        ENG["klaka-engine\n7 detektora + radnik opisa i uloga"]
+        COL["klaka-collector (:8080) — Prijem događaja"]
+        API["klaka-api (:8081 / :8083) — Tokeni pregleda i UI recenzenta"]
+        ENG["klaka-engine — 7 detektora + radnik opisa i uloga"]
     end
 
     subgraph Libs["Zajedničke biblioteke (lib)"]
-        CORE["klaka-core\nToken (Ed25519), šema događaja, presude, /24 i /48"]
-        DB["klaka-db\nSQL migracije (0001-0009), particije, upis"]
-        LLM["klaka-llm\nEmbedder (E1) i LlmProvider (G2/G3), zaštita privatnosti"]
+        CORE["klaka-core — Token (Ed25519), šema događaja, presude, /24 i /48"]
+        DB["klaka-db — SQL migracije (0001-0009), particije, upis"]
+        LLM["klaka-llm — Embedder (E1) i LlmProvider (G2/G3), zaštita privatnosti"]
     end
 
     subgraph Services["Spoljni servisi"]

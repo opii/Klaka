@@ -99,7 +99,7 @@ sequenceDiagram
     participant VK as Valkey
     participant PG as PostgreSQL + pgvector
     participant ENG as klaka-engine + Ollama
-    actor R as Recenzent (:18083)
+    actor R as Recenzent (port 8083)
 
     U->>TS: Otvara članak
     TS->>API: POST /v1/view (portal, post)
@@ -112,7 +112,7 @@ sequenceDiagram
     P->>P: Lokalna Ed25519 provera tokena i starosti
     P->>VK: INCR uses, SET NX voted, MGET presuda (<= 20 ms)
     VK-->>P: Stanje (none ili shadow)
-    P-->>U: Identičan odgovor (count: javno; shadow: vidi samo autor)
+    P-->>U: Identičan odgovor (count je javno, shadow vidi samo autor)
     P-)COL: Asinhrono šalje vote / comment događaj
     COL->>PG: Upis akcije
 
@@ -157,20 +157,20 @@ Poslušnici koji koriste pravi browser, sačekaju par sekundi i uzimaju svež to
 ```mermaid
 flowchart TD
     A["Akcija stiže na portal (glas ili komentar)"] --> B{"SDK provera tokena i Valkey-ja"}
-    B -- "Nema token, loš potpis, < 2 s (too_young),\npreviše akcija ili ponovljen glas (vid, cilj)" --> S1["Odmah shadow\n(Nivo 0 i Nivo 1 skripte)"]
+    B -- "Nema token, loš potpis, < 2 s (too_young), previše akcija ili ponovljen glas" --> S1["Odmah shadow (Nivo 0 i Nivo 1 skripte)"]
     B -- "Token ispravan" --> C["Događaj ide u PostgreSQL (klizeći prozor 10 min)"]
 
     C --> D["Detektori po prefiksu (mrežna + druga dimenzija)"]
     C --> E["Grafovski detektori (rasuta klaka bez zajedničkog prefiksa)"]
 
-    D --> D1["ghost-views\nGlasovi bez JS telemetrije"]
-    D --> D2["unread-votes\nGlasovi za neviđene komentare (seen)"]
-    D --> D3["unwritten-comments\nKomentari nalepljeni bez kucanja (compose)"]
-    D --> D4["focused-votes\nNesrazmerno ciljanje autora kroz >= 2 članka"]
-    D --> D5["shared-templates\nKopije (MinHash LSH) i parafraze (pgvector HNSW)"]
+    D --> D1["ghost-views — Glasovi bez JS telemetrije"]
+    D --> D2["unread-votes — Glasovi za neviđene komentare (seen)"]
+    D --> D3["unwritten-comments — Komentari nalepljeni bez kucanja (compose)"]
+    D --> D4["focused-votes — Nesrazmerno ciljanje autora kroz >= 2 članka"]
+    D --> D5["shared-templates — Kopije (MinHash LSH) i parafraze (pgvector HNSW)"]
 
-    E --> E1["coordinated-votes\nGraf prefiksa koji u +-120 s glasaju za iste mete (k-jezgro)"]
-    E --> E2["coordinated-templates\nGraf prefiksa sa >= 2 zajednička šablona na <= 2 koraka (k-jezgro)"]
+    E --> E1["coordinated-votes — Graf prefiksa koji u +-120 s glasaju za iste mete"]
+    E --> E2["coordinated-templates — Graf prefiksa sa >= 2 zajednička šablona na <= 2 koraka"]
 
     D1 & D2 & D3 & D4 & D5 & E1 & E2 --> V["Presuda shadow u Valkey + naknadni shadow (retro)"]
 ```

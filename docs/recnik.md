@@ -7,12 +7,12 @@ presude. Gde pojam ima ime u kodu ili protokolu, ono je u zagradi.
 
 ```mermaid
 flowchart LR
-    A["Akteri\n(Poslušnici i Publika)"] --> B["Prikaz (vid)\ni Akcija (glas, komentar)"]
-    B --> C["7 detektora\npo dimenzijama"]
-    C --> D["Kohorta\n(uz filter legitimnog blizanca)"]
-    D --> E["Presuda u Valkey-ju\n(shadow + naknadni retro)"]
-    E --> F["U pozadini: Opis (LLM)\ni Uloga (pojačivač / ćaci / razvodnjivač)"]
-    F --> G["Recenzent\n(Potvrdi / Odbaci -> none)"]
+    A["Akteri (Poslušnici i Publika)"] --> B["Prikaz (vid) i Akcija (glas, komentar)"]
+    B --> C["7 detektora po dimenzijama"]
+    C --> D["Kohorta (uz filter legitimnog blizanca)"]
+    D --> E["Presuda u Valkey-ju (shadow + naknadni retro)"]
+    E --> F["U pozadini: Opis (LLM) i Uloga (pojačivač / ćaci / razvodnjivač)"]
+    F --> G["Recenzent (Potvrdi / Odbaci -> none)"]
 ```
 
 1. **Poslušnici** i **publika** prave **akcije** na **metama**; uz akcije stižu i ostali
