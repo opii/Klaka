@@ -131,10 +131,12 @@ export async function run(
   for (const side of sides) {
     // Strana B gura ono što A potiskuje i obrnuto.
     const { push, sink } = side === "A" ? profile.targets : { push: profile.targets.sink, sink: profile.targets.push };
-    const cohort = Array.from({ length: profile.prefixes }, () => nets.take());
+    const take = () => Array.from({ length: profile.prefixes }, () => nets.take());
+    const shared = profile.separate_roles ? [] : take();
     for (const role of ROLES) {
       const goals = (role === "amplifier" ? push : role === "caci" ? sink : []).map((id) => ({ id, post: postOf.get(id)! }));
       const count = profile.roles[role] ?? 0;
+      const cohort = profile.separate_roles && count > 0 ? take() : shared;
       for (let i = 0; i < count; i++) {
         const prefix = cohort[i % cohort.length]!;
         const actor: Actor = {

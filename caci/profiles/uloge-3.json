@@ -1,0 +1,75 @@
+{
+  "name": "uloge-3",
+  "level": 3,
+  "roles": {
+    "amplifier": 4,
+    "caci": 4,
+    "diluter": 4
+  },
+  "votes": 3,
+  "comments": 4,
+  "targets": {
+    "push": [
+      "c1",
+      "c6",
+      "c11"
+    ],
+    "sink": [
+      "c2",
+      "c7",
+      "c9"
+    ],
+    "dilute": [
+      "p-1003",
+      "p-1004"
+    ]
+  },
+  "mirror": true,
+  "window_s": 10,
+  "prefixes": 2,
+  "separate_roles": true,
+  "delay_ms": {
+    "median": 800,
+    "sigma": 0.4
+  },
+  "token_wait_ms": 2500,
+  "token_per_vote": true,
+  "dwell_ms": {
+    "median": 1500,
+    "sigma": 0.3
+  },
+  "templates": {
+    "amplifier": [
+      "Ovo je baš dobro objašnjeno, hvala.",
+      "Slažem se sa svakom rečju.",
+      "Konačno neko normalan u komentarima.",
+      "Bravo za ovaj komentar, potpis.",
+      "Sve je rečeno, nemam šta da dodam."
+    ],
+    "caci": [
+      "Koji si ti lik, bolje ćuti.",
+      "Opet ti sa glupostima, dosadan si.",
+      "Ko te uopšte pita za mišljenje?",
+      "Tipično, ništa pametno od tebe.",
+      "Sramota je da ovo neko piše javno."
+    ],
+    "diluter": [
+      "Da li neko zna kad počinje zimsko računanje vremena?",
+      "Danas sam pravio sarmu, uspela je.",
+      "Preporuka za dobru seriju za vikend?",
+      "Kakvo je vreme kod vas, ovde pada kiša.",
+      "Ima li neko iskustva sa novim telefonima?",
+      "Pozdrav iz Kragujevca svima."
+    ]
+  },
+  "audience": {
+    "readers": 50,
+    "cgnat": 20,
+    "read_ms": {
+      "median": 6000,
+      "sigma": 0.6
+    },
+    "vote_p": 0.6,
+    "comment_p": 0.2
+  }
+}

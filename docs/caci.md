@@ -66,7 +66,14 @@ napada" uz „komentari se slažu i hvale"), pa nijedan broj sam ne pravi ćacij
 Izmereno na 9 izvođenja (72 prefiksa sa presudom, uloge iz dnevnika): tačan skup uloga 63/72;
 pojačivač 61 pogođen, 3 propuštena, 1 lažan; ćaci 28/28, 1 lažan; razvodnjivač 8 pogođenih, 4
 propuštena (manjina u `smena-4`: 2 od 8 komentara prefiksa). Pravila su podešavana na istim
-izvođenjima — mera je optimistična dok se ne proveri na novim profilima i pravim podacima. Ocena toksičnosti i relevantnosti mora biti ista za isti ton bez obzira na
+izvođenjima — mera je optimistična dok se ne proveri na novim profilima i pravim podacima.
+
+**Provera na novim profilima** (`uloge-3`, `uloge-4`: novi tekstovi šablona, svaka uloga na svojim
+prefiksima, razvodnjivači na dva članka; pravila `u3` nepromenjena): tačan skup uloga **16/24**.
+Ćaci 8/8 bez lažnih (glasovi „protiv" i toksičnost); pojačivač 8/8, ali uz 5 lažnih; razvodnjivač
+2/8. Uzrok je brojanje malog modela: za čisto skretanje („Danas sam pravio sarmu") kaže da skreće
+2–3 od 8, a da 1–2 „hvale" — to prelazi prag pojačivača —, a pravilo „jedan članak" ne važi kad
+razvodnjivači zatrpavaju dva. Relevantnost ni ovde ne razdvaja (0,33–0,37, publika 0,36–0,37). Ocena toksičnosti i relevantnosti mora biti ista za isti ton bez obzira na
 stav (koncept §5); toksičan ili prazan komentar organskog čitaoca je posao moderacije, ne Klake.
 
 Poslušnik je i najteži protivnik. Skriptu hvata token pregleda; čoveka u pravom browseru ne

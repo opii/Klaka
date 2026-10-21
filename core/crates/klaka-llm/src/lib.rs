@@ -230,6 +230,9 @@ impl LlmProvider for Ollama {
                 ],
                 "format": task.schema,
                 "stream": false,
+                // Modeli sa „razmišljanjem" (qwen3) bi pre JSON-a ispisali stotine tokena: na
+                // CPU-u 3–5× sporije. Ostali polje zanemaruju.
+                "think": false,
                 "options": {"temperature": 0, "seed": SEED},
             }))
             .send()

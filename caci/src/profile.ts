@@ -35,6 +35,11 @@ export interface Profile {
   reaction_ms?: LogNormal;
   /** Koliko /24 prefiksa deli kohorta jedne strane. */
   prefixes: number;
+  /**
+   * Svaka uloga ima svojih `prefixes` prefiksa. Bez toga uloge strane dele prefikse (jedna
+   * kancelarija), pa je kohorta po prefiksu mešavina uloga.
+   */
+  separate_roles?: boolean;
   /** Pauza između akcija jednog poslušnika. */
   delay_ms: LogNormal;
   /** Nivo 1: koliko čeka posle uzimanja tokena pre prve akcije. */

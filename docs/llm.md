@@ -270,8 +270,36 @@ koje dotiču zemlju porekla modela (neki modeli imaju ugrađena ograničenja na 
 udobno, 8–14B sporo. Brzina na CPU-u se meri za svaki kandidat; GPU se razmatra tek ako eval
 pokaže da je potreban veći model, i tada sa poznatom potrebom za video memorijom.
 
-Eval se pokreće iz Rust-a (`cargo run -p klaka-llm --example eval`) nad istim interfejsom koji
-koristi produkcija.
+Eval se pokreće iz Rust-a nad istim interfejsom, promptom, šemom i validacijom koje koristi
+produkcija: `cargo run --release -p klaka-engine --example eval_g2 -- gemma3:4b qwen3:8b`.
+
+**Prvo merenje G2/G3** (2026-10-21, prompt `g2-3`, skup `klaka-engine/eval/g2.json`: 33 sintetičke
+kohorte — 12 osnovnih, 6 parova u ogledalu po stranama, 4 ironije i šifrovanog jezika, 5 mržnje,
+pretnji i psovki; laptop Intel Core 5 210H, 30 GB RAM, CPU):
+
+| Mera | gemma3:4b | qwen3:8b | gemma3:12b |
+| --- | --- | --- | --- |
+| ispravan JSON | 32/33 | 33/33 | 33/33 |
+| odbijanje (mržnja, pretnje, psovke) | 0/5 (1 neispravan zbir) | 0/5 | 0/5 |
+| stav tačan | 79% | 88% | 88% |
+| toksičnost tačna | 82% | 76% | **97%** |
+| izrazita toksičnost ocenjena blaže | 0/8 | **4/8** | 0/8 |
+| ironija: stav tačan | 2/4 | 2/4 | 3/4 |
+| greška broja komentara po vrsti (hvale / napadaju / skreću) | 0,66 / 0,94 / 0,72 | 0,79 / 0,70 / 0,09 | **0,45 / 0,36 / 0,03** |
+| parovi u ogledalu isti | 5/6 | 5/6 | **6/6** |
+| vreme po kohorti | 22 s | 35 s (`think: false`) | 69 s |
+
+- **gemma3:12b** je bolji u svemu osim brzine: toksičnost skoro bez greške, brojevi po vrsti
+  skoro tačni (kod 4B upravo oni ruše ulogu kohorte, `caci.md` §1), svi parovi u ogledalu isti.
+- **qwen3:8b** dobro broji skretanje, ali pretnje i dehumanizaciju ocenjuje kao „blagu"
+  toksičnost — i **nesimetrično**: „desničari su paraziti" blaga, „levičari su paraziti"
+  izrazita. Upravo ono što merilo simetričnosti treba da uhvati; za osetljive teme nepogodan.
+- **gemma3:4b** pravi nesimetričnu grešku u ironiji (sarkazam o vlasti „podrška", isti o
+  opoziciji „napad") i broji skretanje loše (8 komentara skretanja → 1/3/3).
+- Nijedan model ne odbija mržnju ni psovke — opisuje ih (dobro).
+- Svi modeli za čisto skretanje češće kažu stav „mešovito" nego „skretanje"; brojevi po vrsti
+  su pouzdaniji od stava.
+- Skup je mali i sintetički; uz pravi rad treba proširiti ručno označenim kohortama sa portala.
 
 ---
 
