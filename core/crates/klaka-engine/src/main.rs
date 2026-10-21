@@ -37,7 +37,7 @@ use klaka_engine::comments::{
     template_cohorts, unwritten_cohorts,
 };
 use klaka_engine::coordinated::{COORDINATED_VOTES, coordinated_cohorts, nets};
-use klaka_engine::describe::{AFTER, Outcome, describe_next, purge_summaries};
+use klaka_engine::describe::{AFTER, Outcome, describe_next, purge_summaries, settle};
 use klaka_engine::role::{embed_posts, refresh};
 use klaka_engine::{
     Config, FOCUSED_VOTES, Finding, GHOST_VIEWS, NetVerdict, UNREAD_VOTES, detectors,
@@ -95,12 +95,14 @@ async fn main() {
     let retention_days: i32 = env("KLAKA_RETENTION_DAYS", 30);
     let mut embedder: Option<Ollama> = None;
     let mut embed_error: Option<String> = None;
-    if let (Some(url), Some(model)) = (
-        ollama_url.clone(),
-        ["KLAKA_DESCRIBE_MODEL", "KLAKA_LLM_MODEL"]
-            .into_iter()
-            .find_map(|k| std::env::var(k).ok().filter(|m| !m.trim().is_empty())),
-    ) {
+    let mut role_error: Option<String> = None;
+    let describe_model = ["KLAKA_DESCRIBE_MODEL", "KLAKA_LLM_MODEL"]
+        .into_iter()
+        .find_map(|k| std::env::var(k).ok().filter(|m| !m.trim().is_empty()));
+    // Opis kohorte postoji samo uz model; uloga i zatvaranje poslova bez komentara ne zavise od
+    // njega (`settle` u krugu detekcije).
+    let describe = ollama_url.is_some() && describe_model.is_some();
+    if let (Some(url), Some(model)) = (ollama_url.clone(), describe_model) {
         tokio::spawn(describe_worker(pool.clone(), url, model));
     }
 
@@ -213,6 +215,14 @@ async fn main() {
                 Err(e) => eprintln!("klaka-engine: presuda {portal} {net} nije upisana: {e}"),
             }
         }
+        // Uloga kohorte i poslovi opisa koji ne traže model, pa uloge starije verzije pravila iz
+        // sačuvanih opisa — bez obzira na to da li je model podešen i dostupan.
+        if let Err(e) = settle(&pool, AFTER, describe).await {
+            warn_once(&mut role_error, format!("uloga kohorte: {e}"));
+        }
+        if let Err(e) = refresh(&pool, AFTER, ROLE_REFRESH).await {
+            warn_once(&mut role_error, format!("uloga kohorte: {e}"));
+        }
     }
 }
 
@@ -255,13 +265,7 @@ async fn describe_worker(pool: PgPool, url: String, model: String) {
                     }
                 }
             }
-            Ok(None) => {
-                // Bez posla: uloge starije verzije pravila, iz sačuvanih opisa.
-                if let Err(e) = refresh(&pool, AFTER, ROLE_REFRESH).await {
-                    warn_once(&mut error, format!("uloga kohorte: baza: {e}"));
-                }
-                tokio::time::sleep(DESCRIBE_IDLE).await
-            }
+            Ok(None) => tokio::time::sleep(DESCRIBE_IDLE).await,
             Err(e) => {
                 warn_once(&mut error, format!("opis kohorte: baza: {e}"));
                 tokio::time::sleep(DESCRIBE_RETRY).await;

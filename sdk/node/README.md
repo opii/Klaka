@@ -29,6 +29,11 @@ for (const a of actions) {
   if (a.kind === "comment") hideFromPublic(a.comment);          // autor ga i dalje vidi
   else uncountVote(a.vid, a.target);                             // jedan uračunat glas po (vid, cilj)
 }
+
+// Događaji bez odluke: objava ili izmena posta, promocija, odluka moderatora.
+klaka.onPost({ post: postId, rev, url, title, section, body });   // body: javni tekst, opciono
+klaka.onPromotion(postId, "push");                                // nalet posle push-a nije klaka
+klaka.onModeration(commentId, "rejected", reason);                // oznake za evaluaciju
 ```
 
 Portal korisniku vraća **isti odgovor** za `count` i `shadow` (spec README, princip 3).
@@ -59,7 +64,7 @@ Delovi su dostupni i pojedinačno (`TokenVerifier`, `parseVerdict`, `strongest`,
 
 | Gotovo | Sledi |
 | --- | --- |
-| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), naknadni shadow (`retro`), `onPromotion`, slanje događaja | `onModeration`, `onPost` (`sdk.md` §1) |
+| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), naknadni shadow (`retro`), `onPromotion`, `onPost`, `onModeration`, slanje događaja — ceo javni API iz `sdk.md` §1 | SDK-ovi za druge jezike (`sdk/php`, `sdk/go`, `sdk/java`) |
 
 ```bash
 docker compose run --rm -w /work/sdk/node node npm test   # iz korena repoa

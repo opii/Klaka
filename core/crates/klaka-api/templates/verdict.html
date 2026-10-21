@@ -33,7 +33,7 @@
 {% if roles.is_empty() %}
 <p class="muted">{% if role_known %}bez jasnog signala uloge{% else %}nije izračunata (računa se posle opisa modela){% endif %}</p>
 {% else %}
-<p>{% for r in roles %}<span class="tag">{{ r }}</span> {% endfor %}</p>
+<p>{% for r in roles %}<span class="tag">{{ r }}</span> {% endfor %}{% if !role_note.is_empty() %}<span class="muted">{{ role_note }}</span>{% endif %}</p>
 {% endif %}
 {% if !role_reasons.is_empty() %}
 <ul>

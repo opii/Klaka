@@ -89,7 +89,10 @@ async function refreshKeys(): Promise<void> {
     const json = JSON.stringify(body.keys);
     if (json !== keysJson) {
       if (klaka) klaka.setKeys(body.keys);
-      else klaka = new Klaka({ portal: PORTAL, keys: body.keys, policy: POLICY, ...(store && { store }), ...(events && { events }) });
+      else {
+        klaka = new Klaka({ portal: PORTAL, keys: body.keys, policy: POLICY, ...(store && { store }), ...(events && { events }) });
+        announcePosts(klaka);
+      }
       keysJson = json;
       console.log(`ključevi učitani: ${Object.keys(body.keys).join(", ")}`);
     }
@@ -302,11 +305,14 @@ function readSnippet(path: string): string {
 await refreshKeys();
 setInterval(refreshKeys, 15_000).unref();
 setInterval(() => void applyRetro().catch((e: Error) => console.warn(`naknadni shadow: ${e.message}`)), RETRO_MS).unref();
-for (const p of POSTS) {
-  events?.send({
-    type: "post", t: Date.now(), post: p.id, rev: 1, url: `https://${PORTAL}/p/${p.id}`,
-    title: p.title, section: p.section, body: p.paragraphs.join("\n\n"),
-  });
+/** Članci portala (`onPost`): engine iz teksta meri koliko se komentari tiču članka. */
+function announcePosts(k: Klaka): void {
+  for (const p of POSTS) {
+    k.onPost({
+      post: p.id, rev: 1, url: `https://${PORTAL}/p/${p.id}`, title: p.title, section: p.section,
+      body: p.paragraphs.join("\n\n"),
+    });
+  }
 }
 server.listen(PORT, () =>
   console.log(`demo portal na :${PORT} (klaka-api: ${API}, browser: ${API_PUBLIC}, događaji: ${events ? "da" : "ne"})`),

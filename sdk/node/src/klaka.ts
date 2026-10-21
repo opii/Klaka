@@ -59,6 +59,22 @@ export type CommentResult = Omit<VoteResult, "repeat">;
 /** Kanal kojim je portal sam promovisao post (events.md §3, `promotion`). */
 export type PromotionChannel = "push" | "homepage" | "newsletter" | "social" | "other";
 
+/** Objava ili izmena posta (events.md `post`). */
+export interface PostInput {
+  post: string;
+  /** Revizija; raste pri svakoj izmeni. */
+  rev: number;
+  /** Kanonski URL. */
+  url: string;
+  title: string;
+  /** Rubrika (za poređenje po temama). */
+  section?: string | null;
+  /** Javan tekst članka, ako ga portal šalje: engine meri koliko se komentari tiču članka. */
+  body?: string | null;
+}
+
+export type ModerationResult = "approved" | "rejected";
+
 /**
  * Akcija za naknadni shadow (verdicts.md §5): komentar se više ne prikazuje javno (autor ga i
  * dalje vidi), glas se oduzima od javnog zbira. Glas je određen parom (`vid`, `target`) — prikaz
@@ -153,6 +169,22 @@ export class Klaka {
    */
   onPromotion(post: string, channel: PromotionChannel): void {
     this.#cfg.events?.send({ type: "promotion", t: this.#now(), post, channel });
+  }
+
+  /** Objava ili izmena posta (nova `rev`). Samo događaj, bez odluke. */
+  onPost(p: PostInput): void {
+    this.#cfg.events?.send({
+      type: "post", t: this.#now(), post: p.post, rev: p.rev, url: p.url, title: p.title,
+      section: p.section ?? null, body: p.body ?? null,
+    });
+  }
+
+  /**
+   * Odluka moderatora o komentaru — izvor oznaka za evaluaciju (koncept §6). Identitet
+   * moderatora se ne šalje (events.md). Samo događaj, bez odluke.
+   */
+  onModeration(comment: string, result: ModerationResult, reason: string | null = null): void {
+    this.#cfg.events?.send({ type: "moderation", t: this.#now(), comment, result, reason });
   }
 
   /**

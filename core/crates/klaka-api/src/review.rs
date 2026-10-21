@@ -341,6 +341,7 @@ struct Detail {
     roles: Vec<String>,
     role_reasons: Vec<String>,
     role_known: bool,
+    role_note: String,
 }
 
 /// Uzorak akcija prefiksa iz prozora dokaza.
@@ -443,6 +444,7 @@ async fn detail(
     .fetch_optional(pool)
     .await
     .map_err(db)?;
+    let pending = summary.as_ref().is_some_and(|r| r.0 == "pending");
     let summary = summary_view(summary);
     let role: Option<Option<Value>> =
         sqlx::query_scalar("SELECT role FROM cohort_summary WHERE verdict_id = $1")
@@ -461,6 +463,12 @@ async fn detail(
     };
     let role = role.flatten();
     let role_known = role.is_some();
+    // Uloga bez opisa dok opis čeka: iz glasova, preračunava se kad opis stigne.
+    let role_note = role
+        .as_ref()
+        .filter(|r| pending && r["uz_opis"] == Value::Bool(false))
+        .map(|_| "privremena — iz glasova; preračunava se kad stigne opis modela".to_owned())
+        .unwrap_or_default();
     let (roles, role_reasons) = match role {
         Some(r) => (strings(&r, "uloge"), strings(&r, "razlozi")),
         None => (Vec::new(), Vec::new()),
@@ -520,6 +528,7 @@ async fn detail(
         roles,
         role_reasons,
         role_known,
+        role_note,
     })
 }
 
@@ -578,9 +587,10 @@ fn summary_view(row: Option<SummaryRow>) -> Summary {
             }
         }
         ("pending", _) => empty("čeka model".into()),
-        ("skipped", _) => {
-            empty("prefiks nema komentara u prozoru dokaza — nema šta da se opiše".into())
-        }
+        // Zatvoren bez modela: razlog (opis nije uključen) ili nema komentara.
+        ("skipped", _) => empty(error.unwrap_or_else(|| {
+            "prefiks nema komentara u prozoru dokaza — nema šta da se opiše".into()
+        })),
         _ => empty(format!(
             "opis nije uspeo: {}",
             error.unwrap_or_else(|| "nepoznata greška".into())

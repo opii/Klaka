@@ -207,6 +207,10 @@ LIMIT 20;
 - **Radnik** je poseban zadatak u engine-u, odvojen od kruga detekcije: detekcija nikad ne čeka
   model. Uzimanje posla je `FOR UPDATE SKIP LOCKED`; posao koji radnik uzme, a ne završi u 10
   minuta (pad), sme se uzeti ponovo.
+- **Deo bez modela je u krugu detekcije** (`settle`, jeftin SQL): kohorta bez komentara se zatvara
+  i odmah dobija ulogu, kohorta sa komentarima privremenu ulogu iz glasova (radnik je preračuna sa
+  opisom), a bez podešenog modela posao se zatvara uz razlog. Inače bi presude samo sa glasovima
+  čekale u redu iza opisa od po minut, a bez modela ulogu ne bi dobile nikad.
 - **Audit** (§4): zadatak, verzija prompta, SHA-256 ulaza, model sa digestom, trajanje, izlaz.
   Opis je izveden iz teksta komentara — ista retencija kao komentari.
 - **Verzija prompta** se menja sa svakom izmenom uputstva. `g2-1` (samo opšte uputstvo) je sa

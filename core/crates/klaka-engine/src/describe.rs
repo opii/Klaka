@@ -149,6 +149,48 @@ pub fn input(
     out
 }
 
+/// Razlog zatvaranja posla kad opis nije uključen (model nije podešen).
+pub const DISABLED: &str = "opis kohorte nije uključen (KLAKA_DESCRIBE_MODEL)";
+/// Poslova po krugu u `settle`.
+const SETTLE_BATCH: i64 = 100;
+
+/// Deo posla bez modela, u krugu detekcije (jeftin SQL): kohorta bez komentara u prozoru se
+/// zatvara i odmah dobija ulogu; kohorta sa komentarima dobija privremenu ulogu iz glasova (radnik
+/// je posle opisa preračuna), a kad opis nije uključen (`describe == false`) se i zatvara. Bez
+/// ovoga bi presude samo sa glasovima čekale u istom redu iza opisa od po minut, a bez modela
+/// ulogu ne bi dobile nikad. Posao koji radnik upravo obrađuje se preskače.
+pub async fn settle(pool: &PgPool, after: Duration, describe: bool) -> Result<usize, sqlx::Error> {
+    let jobs: Vec<(i64, bool)> = sqlx::query_as(
+        "SELECT s.verdict_id, EXISTS (
+                    SELECT 1 FROM events e
+                    WHERE e.portal = v.portal AND e.net = v.key AND e.type = 'comment'
+                      AND e.source = 'server'
+                      AND e.recv_at > v.created_at - make_interval(
+                              secs => coalesce((v.evidence->>'window_s')::float8, 600))
+                      AND e.recv_at <= v.created_at + make_interval(secs => $1)
+                )
+         FROM cohort_summary s JOIN verdicts v ON v.id = s.verdict_id
+         WHERE s.status = 'pending' AND s.role IS NULL
+           AND v.created_at <= now() - make_interval(secs => $1)
+           AND (s.claimed_at IS NULL OR s.claimed_at < now() - make_interval(secs => $2))
+         ORDER BY s.created_at LIMIT $3",
+    )
+    .bind(after.as_secs_f64())
+    .bind(CLAIM.as_secs_f64())
+    .bind(SETTLE_BATCH)
+    .fetch_all(pool)
+    .await?;
+    for &(id, comments) in &jobs {
+        if !comments {
+            finish(pool, id, "skipped", None, None, None).await?;
+        } else if !describe {
+            finish(pool, id, "skipped", None, None, Some(DISABLED)).await?;
+        }
+        role::assign(pool, id, None, after).await?;
+    }
+    Ok(jobs.len())
+}
+
 /// Šta je radnik uradio sa poslom.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {

@@ -152,3 +152,22 @@ test("promocija: samo događaj, sa vremenom servera", () => {
   klaka.onPromotion(POST, "push");
   assert.deepEqual(sent, [{ type: "promotion", t: NOW, post: POST, channel: "push" }]);
 });
+
+test("post: događaj objave, bez rubrike i teksta kad ih nema", () => {
+  const { klaka, sent } = setup();
+  klaka.onPost({ post: POST, rev: 2, url: "https://demo.local/p/1", title: "Naslov", body: "Tekst članka." });
+  assert.deepEqual(sent, [{
+    type: "post", t: NOW, post: POST, rev: 2, url: "https://demo.local/p/1", title: "Naslov", section: null,
+    body: "Tekst članka.",
+  }]);
+});
+
+test("moderacija: odluka i razlog, bez identiteta moderatora", () => {
+  const { klaka, sent } = setup();
+  klaka.onModeration("c1", "rejected", "uvreda");
+  klaka.onModeration("c2", "approved");
+  assert.deepEqual(sent, [
+    { type: "moderation", t: NOW, comment: "c1", result: "rejected", reason: "uvreda" },
+    { type: "moderation", t: NOW, comment: "c2", result: "approved", reason: null },
+  ]);
+});

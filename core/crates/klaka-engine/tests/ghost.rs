@@ -6,7 +6,7 @@ use std::time::Duration;
 use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
 use klaka_engine::comments::{EMBEDDING_DIM, embed_pending, template_cohorts, unwritten_cohorts};
 use klaka_engine::coordinated::coordinated_cohorts;
-use klaka_engine::describe::{Outcome, describe_next};
+use klaka_engine::describe::{DISABLED, Outcome, describe_next, settle};
 use klaka_engine::{
     Config, GHOST_VIEWS, Issued, NetVerdict, Nets, focused_cohorts, ghost_cohorts,
     issue_net_shadow, net_key, retro_key, unread_cohorts,
@@ -997,6 +997,95 @@ async fn cohort_is_described_and_bad_output_is_retried_then_failed() {
             .await
             .unwrap();
     assert_eq!(role["uloge"], json!([]), "{role}");
+
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn role_is_assigned_without_the_model() {
+    let Some((admin, pool, schema)) = schema("settle").await else {
+        return;
+    };
+    let status = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            let row: (String, Option<String>, serde_json::Value) = sqlx::query_as(
+                "SELECT status, error, role FROM cohort_summary WHERE verdict_id = $1",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            row
+        }
+    };
+    // Kohorta samo sa glasovima: 4 glasa „za" tuđe komentare.
+    let votes: Vec<Row> = (0..4)
+        .map(|i| Row {
+            kind: "vote",
+            t: 1,
+            vid: Some(format!("g{i}")),
+            post: Some("p-1".to_owned()),
+            net: Some("198.18.80.0/24".to_owned()),
+            data: json!({"type": "vote", "target": format!("tudji{i}"), "dir": 1, "decision": "count"}),
+        })
+        .collect();
+    PgStore(pool.clone())
+        .insert(Batch {
+            portal: "demo.local".into(),
+            source: Source::Server,
+            rows: votes,
+        })
+        .await
+        .unwrap();
+    let votes_only = described_verdict(&pool, "198.18.80.0/24", &[]).await;
+    let comments = described_verdict(
+        &pool,
+        "198.18.81.0/24",
+        &[("p-1", "Odlično."), ("p-1", "Bravo.")],
+    )
+    .await;
+
+    assert_eq!(settle(&pool, Duration::ZERO, true).await.unwrap(), 2);
+    let (st, _, role) = status(votes_only).await;
+    assert_eq!(st, "skipped", "bez komentara: nema šta da se opiše");
+    assert_eq!(role["uloge"], json!(["pojačivač"]), "{role}");
+    assert_eq!(role["uz_opis"], json!(false));
+    let (st, _, role) = status(comments).await;
+    assert_eq!(st, "pending", "čeka opis modela");
+    assert_eq!(role["uz_opis"], json!(false), "privremena uloga: {role}");
+    assert_eq!(
+        settle(&pool, Duration::ZERO, true).await.unwrap(),
+        0,
+        "svaki posao jednom"
+    );
+
+    // Posle opisa uloga se preračuna sa njim.
+    let llm = FakeLlm {
+        reply: json!({"poruka": "Hvale.", "stav": "podrška", "kohezija": "visoka", "toksicnost": "nema",
+                      "hvale": 2, "napadaju": 0, "skrecu": 0, "sazetak": "Dva komentara."}),
+        seen: Default::default(),
+    };
+    assert_eq!(
+        describe_next(&pool, &llm, Duration::ZERO).await.unwrap(),
+        Some((comments, Outcome::Done))
+    );
+    let (_, _, role) = status(comments).await;
+    assert_eq!(
+        (role["uloge"].clone(), role["uz_opis"].clone()),
+        (json!(["pojačivač"]), json!(true))
+    );
+
+    // Opis nije uključen: posao sa komentarima se zatvara, uloga i dalje nastaje.
+    let disabled = described_verdict(&pool, "198.18.82.0/24", &[("p-1", "Sramota.")]).await;
+    settle(&pool, Duration::ZERO, false).await.unwrap();
+    let (st, error, role) = status(disabled).await;
+    assert_eq!((st.as_str(), error.as_deref()), ("skipped", Some(DISABLED)));
+    assert!(role["uloge"].is_array(), "{role}");
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))

@@ -304,6 +304,22 @@ async fn reviewer_sees_evidence_and_rejection_stops_the_verdict() {
     let (_, _, body) = call(ui(), get("/?sve=1")).await;
     assert!(body.contains("odbačena (ana)"), "{body}");
 
+    // Opis još čeka model: uloga iz glasova je privremena.
+    sqlx::query(
+        "UPDATE cohort_summary SET status = 'pending', output = NULL,
+                role = '{\"uloge\": [\"ćaci\"], \"razlozi\": [], \"uz_opis\": false}'
+         WHERE verdict_id = $1",
+    )
+    .bind(id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (_, _, body) = call(ui(), get(&format!("/presude/{id}"))).await;
+    assert!(
+        body.contains("privremena") && body.contains("čeka model"),
+        "{body}"
+    );
+
     redis::cmd("DEL")
         .arg(&key)
         .query_async::<()>(&mut c)

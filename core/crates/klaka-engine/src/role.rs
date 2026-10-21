@@ -352,7 +352,9 @@ pub async fn assign(
     description: Option<&Value>,
     after: Duration,
 ) -> Result<Value, sqlx::Error> {
-    let role = roles(&signals(pool, verdict_id, description, after).await?);
+    let mut role = roles(&signals(pool, verdict_id, description, after).await?);
+    // Bez opisa modela: uloga iz glasova (i strukture komentara), privremena dok opis ne stigne.
+    role["uz_opis"] = description.is_some().into();
     sqlx::query("UPDATE cohort_summary SET role = $2 WHERE verdict_id = $1")
         .bind(verdict_id)
         .bind(&role)

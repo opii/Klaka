@@ -46,8 +46,9 @@ Detekcija mora da ih uhvati bez obzira na to koga guraju, potiskuju ili kome gas
 Uloga se ocenjuje na **kohorti, ne na pojedincu**: i pravi čitaoci ponekad pišu prazne ili
 grube komentare.
 
-**Kako je Klaka računa** (`klaka-engine` `role.rs`, pravila `u4`): uz opis kohorte, za prefiks
-presude, iz prozora dokaza i 2 minuta posle presude (kohorta tada još radi). Uloge dele prefiks
+**Kako je Klaka računa** (`klaka-engine` `role.rs`, pravila `u4`): za prefiks presude, iz prozora
+dokaza i 2 minuta posle presude (kohorta tada još radi) — iz glasova odmah, i bez generativnog
+modela; kad stigne opis kohorte, preračuna se sa njim. Uloge dele prefiks
 (ista kancelarija), pa je ishod **skup uloga, svaka sa razlogom**:
 
 - **pojačivač** — glasovi „za" na tuđe komentare (≥ 3 i ≥ četvrtina glasova prefiksa), ili po
