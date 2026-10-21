@@ -54,8 +54,8 @@ pub struct PromotionAt {
 pub struct Member {
     pub portal: String,
     pub net: String,
-    /// Različitih elemenata prefiksa u prozoru: (post, cilj, smer) koje je glasao, odnosno
-    /// klastera šablona njegovih komentara.
+    /// Elemenata prefiksa u prozoru: različitih (post, cilj, smer) koje je glasao, odnosno
+    /// njegovih komentara sa blizancem (usklađeni šabloni).
     pub elements: i64,
     /// Prefiksa sa kojima je usklađen (ivica u grafu).
     pub partners: i64,
@@ -329,6 +329,7 @@ mod tests {
             max_p_value: 1e-4,
             min_comments: 5,
             max_text_distance: 0.2,
+            max_graph_distance: 0.25,
             min_minhash: 0.5,
             covote: Duration::from_secs(120),
             min_jaccard: 0.5,

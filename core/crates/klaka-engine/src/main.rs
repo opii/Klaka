@@ -11,6 +11,8 @@
 //! - `KLAKA_ENGINE_MIN_COMMENTS`  detektori komentara: najmanje komentara iz prefiksa (5)
 //! - `KLAKA_ENGINE_MAX_TEXT_DISTANCE`, `KLAKA_ENGINE_MIN_MINHASH`
 //!   deljeni šabloni: kosinusna udaljenost za parafrazu, MinHash za kopiju (0.2, 0.5)
+//! - `KLAKA_ENGINE_MAX_GRAPH_DISTANCE` usklađeni šabloni: kosinusna udaljenost za parafrazu u
+//!   ivicama grafa (0.25)
 //! - `KLAKA_ENGINE_TEMPLATE_DAYS` deljeni šabloni: parafraza se traži među komentarima iz
 //!   ovoliko dana unazad, preko HNSW indeksa (7, docs/llm.md §5a)
 //! - `KLAKA_ENGINE_COVOTE_S`, `KLAKA_ENGINE_MIN_JACCARD`, `KLAKA_ENGINE_MIN_PARTNERS`,
@@ -58,6 +60,7 @@ async fn main() {
         max_p_value: env("KLAKA_ENGINE_MAX_P", 1e-4),
         min_comments: env("KLAKA_ENGINE_MIN_COMMENTS", 5),
         max_text_distance: env("KLAKA_ENGINE_MAX_TEXT_DISTANCE", 0.2),
+        max_graph_distance: env("KLAKA_ENGINE_MAX_GRAPH_DISTANCE", 0.25),
         min_minhash: env("KLAKA_ENGINE_MIN_MINHASH", 0.5),
         covote: Duration::from_secs(env("KLAKA_ENGINE_COVOTE_S", 120)),
         min_jaccard: env("KLAKA_ENGINE_MIN_JACCARD", 0.5),
@@ -90,7 +93,8 @@ async fn main() {
 
     eprintln!(
         "klaka-engine: detektori {GHOST_VIEWS}, {UNREAD_VOTES}, {FOCUSED_VOTES}, \
-         {COORDINATED_VOTES}, {UNWRITTEN_COMMENTS}, {SHARED_TEMPLATES}; svakih {}s, prozor {}s",
+         {COORDINATED_VOTES}, {UNWRITTEN_COMMENTS}, {SHARED_TEMPLATES}, {COORDINATED_TEMPLATES}; \
+         svakih {}s, prozor {}s",
         interval.as_secs(),
         cfg.window.as_secs()
     );

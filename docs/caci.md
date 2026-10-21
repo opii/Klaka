@@ -103,7 +103,8 @@ hvataju isti detektori, sporije: smena ima manje poslušnika, a parafraze su man
 Klaku rasutu po mnogo prefiksa (svaki poslušnik svoj, par glasova — ispod svih pragova po
 prefiksu) hvata graf usklađenih glasova: isti ciljevi, isti smer, u razmaku ≤ 120 s, kroz više
 postova. Ako piše komentare, hvata je graf usklađenih šablona: prefiksi koji dele bar dva ista
-šablona (klaster kopija i parafraza), kroz više postova. Članovi oba grafa ne ulaze u organski
+šablona (kopija ili parafraza, direktno ili preko zajedničkog blizanca — ne u dužem lancu, koji
+bi parafraze malog modela spojio u jedan šablon), kroz više postova. Članovi oba grafa ne ulaze u organski
 udeo detektora po prefiksu — rasuta klaka bi ga inače svojim šablonima i glasovima podigla i
 zaštitila i koncentrisanu.
 

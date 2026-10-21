@@ -58,6 +58,9 @@ pub struct Config {
     pub min_comments: i64,
     /// Deljeni šabloni: najveća kosinusna udaljenost embeddings-a za parafrazu (`docs/llm.md` §5a).
     pub max_text_distance: f64,
+    /// Usklađeni šabloni: isto, za ivice grafa — blaže, jer ivica traži bar dva para između ista
+    /// dva prefiksa, Jaccard i kohortu od više prefiksa.
+    pub max_graph_distance: f64,
     /// Deljeni šabloni: najmanja MinHash sličnost za kopiju.
     pub min_minhash: f64,
     /// Usklađeni glasovi: najveći razmak dva glasa za isti cilj da bi bili „zajedno".
@@ -634,6 +637,7 @@ mod tests {
             max_p_value: 1e-4,
             min_comments: 5,
             max_text_distance: 0.2,
+            max_graph_distance: 0.25,
             min_minhash: 0.5,
             covote: Duration::from_secs(120),
             min_jaccard: 0.5,

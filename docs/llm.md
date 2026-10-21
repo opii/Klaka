@@ -154,6 +154,22 @@ LIMIT 20;
   ista 4 članka iz izvođenja u izvođenje — i `sabloni-4` je propustio prefiks sa 10/12 šablonskih
   komentara (lift 2,98 uz prag 3). Sa pravilom: organski udeo 0,01–0,10, sva 4 prefiksa za
   26–31 s (`caci/README.md`).
+- **Graf usklađenih šablona** (rasuta klaka, `coordinated-templates`) traži i drugi kNN: među
+  komentarima prefiksa sa bar dva komentara u prozoru, jer stari blizanci često potroše svih 5
+  mesta pa se dva poslušnika iz prozora ne vide direktno. To je poređenje svakog para, ali samo u
+  tom skupu — pojedinci sa jednim komentarom (skoro cela publika) u njemu nisu. Dva komentara su
+  isti šablon ako su blizanci ili imaju zajedničkog blizanca, ne preko dužeg lanca: `gemma3:4b`
+  parafrazu ponekad pomeri ka drugom šablonu iste uloge (udaljenost 0,242 od prvog), a komponenta
+  povezanosti bi ta dva šablona spojila u jedan (izmereno, `rasuti-sabloni-4`: 10 klastera umesto
+  5, jedan prefiks propušten; sa drugim kNN-om i komponentama dva).
+- **Prag za ivice grafa je blaži** (`KLAKA_ENGINE_MAX_GRAPH_DISTANCE = 0,25`; deljeni šabloni po
+  prefiksu ostaju na 0,2): ivica traži bar dva para između ista dva prefiksa, Jaccard i kohortu od
+  ≥ 5 prefiksa, pa slučajan dodir publike ne pravi kohortu. Sa 0,2 je `rasuti-sabloni-4` hvatao 11–16
+  od 16 prefiksa — deo parafraza `gemma3:4b` ispadne tik iznad (0,215–0,283), a poslušnik ima samo
+  3 komentara; sa 0,25 16/16 u tri izvođenja. Nijedan čitalac ni CGNAT emulatora ni na 0,28 nema
+  ivicu. Šabloni iste uloge (od 0,242) se pod pragom dodiruju, ali to samo dodaje parove — ivicu
+  ne briše, jer se broje komentari, ne klasteri. Otvoreno: popularne fraze na velikom portalu
+  (publika emulatora piše o članku, ne opšte fraze).
 - **MinHash ide prvi** (Rust, bez modela): copy-paste i sitne izmene hvata jeftino, i radi i
   kad Ollama nije dostupna. Kandidati se biraju preko LSH (16 traka po 4 reda: par sličnosti
   0,7 postaje kandidat sa 99%, nepovezan tekst sa 0,2%), ne poređenjem svakog para — 6000

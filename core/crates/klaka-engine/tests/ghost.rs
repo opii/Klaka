@@ -26,6 +26,7 @@ fn cfg() -> Config {
         max_p_value: 1e-4,
         min_comments: 5,
         max_text_distance: 0.2,
+        max_graph_distance: 0.25,
         min_minhash: 0.5,
         covote: Duration::from_secs(120),
         min_jaccard: 0.5,
