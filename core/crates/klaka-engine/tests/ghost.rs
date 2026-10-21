@@ -7,8 +7,8 @@ use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions
 use klaka_engine::comments::{EMBEDDING_DIM, embed_pending, template_cohorts, unwritten_cohorts};
 use klaka_engine::coordinated::coordinated_cohorts;
 use klaka_engine::{
-    Config, GHOST_VIEWS, Issued, NetVerdict, focused_cohorts, ghost_cohorts, issue_net_shadow,
-    net_key, retro_key, unread_cohorts,
+    Config, GHOST_VIEWS, Issued, NetVerdict, Nets, focused_cohorts, ghost_cohorts,
+    issue_net_shadow, net_key, retro_key, unread_cohorts,
 };
 use klaka_llm::{Embedder, LlmError};
 use serde_json::json;
@@ -292,7 +292,7 @@ async fn focused_votes_found_across_posts_twins_not() {
     author_votes(&store, "198.18.1.0/24", ("a1", -1), 6, 3, 0).await;
     author_votes(&store, "198.18.3.0/24", ("a0", 1), 20, 1, 0).await; // ista, na jednom postu
 
-    let found = focused_cohorts(&pool, &cfg()).await.unwrap();
+    let found = focused_cohorts(&pool, &cfg(), &Nets::new()).await.unwrap();
     let got: Vec<_> = found
         .iter()
         .map(|f| (f.cell.net.as_str(), f.cell.author.as_str(), f.cell.dir))
@@ -499,14 +499,18 @@ async fn shared_templates_found_through_embeddings() {
         "svaki komentar jednom"
     );
 
-    let without = template_cohorts(&pool, &cfg(), None).await.unwrap();
+    let without = template_cohorts(&pool, &cfg(), None, &Nets::new())
+        .await
+        .unwrap()
+        .cohorts;
     assert!(
         without.is_empty(),
         "MinHash sam ne vidi parafraze: {without:?}"
     );
-    let found = template_cohorts(&pool, &cfg(), Some("fake@0"))
+    let found = template_cohorts(&pool, &cfg(), Some("fake@0"), &Nets::new())
         .await
-        .unwrap();
+        .unwrap()
+        .cohorts;
     let got: Vec<_> = found
         .iter()
         .map(|c| (c.net.as_str(), c.templated, c.copies))

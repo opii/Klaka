@@ -1,0 +1,44 @@
+{
+  "name": "rasuti-sabloni-3",
+  "level": 3,
+  "roles": {
+    "amplifier": 8
+  },
+  "votes": 0,
+  "comments": 3,
+  "targets": {
+    "push": [
+      "c1",
+      "c6",
+      "c11"
+    ],
+    "sink": [
+      "c2",
+      "c7",
+      "c9"
+    ]
+  },
+  "mirror": true,
+  "window_s": 10,
+  "prefixes": 8,
+  "delay_ms": {
+    "median": 800,
+    "sigma": 0.4
+  },
+  "token_wait_ms": 2500,
+  "token_per_vote": true,
+  "dwell_ms": {
+    "median": 1500,
+    "sigma": 0.3
+  },
+  "audience": {
+    "readers": 50,
+    "cgnat": 20,
+    "read_ms": {
+      "median": 6000,
+      "sigma": 0.6
+    },
+    "vote_p": 0.6,
+    "comment_p": 0.2
+  }
+}

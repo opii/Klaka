@@ -253,8 +253,10 @@ export function operativePlan(
       return { kind, goal, dir };
     }
     const n = comments++;
+    // Šablon poslušnika je `(index + n)`-ti (`prepareTexts`); post ide drugim korakom, inače bi
+    // isti šablon kod svih poslušnika strane završio na istom članku.
     return {
-      kind, post: commentPosts[(index + n) % commentPosts.length]!, text: texts[n]!, author: names[n % names.length]!,
+      kind, post: commentPosts[(2 * index + n) % commentPosts.length]!, text: texts[n]!, author: names[n % names.length]!,
     };
   });
 }

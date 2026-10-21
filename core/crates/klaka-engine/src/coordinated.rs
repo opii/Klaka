@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use serde_json::json;
 use sqlx::PgPool;
 
-use crate::{Config, Finding};
+use crate::{Config, Finding, Nets};
 
 pub const COORDINATED_VOTES: &str = "coordinated-votes";
 
@@ -54,7 +54,8 @@ pub struct PromotionAt {
 pub struct Member {
     pub portal: String,
     pub net: String,
-    /// Različitih (post, cilj, smer) koje je prefiks glasao u prozoru.
+    /// Različitih elemenata prefiksa u prozoru: (post, cilj, smer) koje je glasao, odnosno
+    /// klastera šablona njegovih komentara.
     pub elements: i64,
     /// Prefiksa sa kojima je usklađen (ivica u grafu).
     pub partners: i64,
@@ -209,6 +210,20 @@ pub fn coordinated(votes: &[VoteAt], promotions: &[PromotionAt], cfg: &Config) -
             adj[b].insert(a, posts);
         }
     }
+    let elements: Vec<usize> = sets.iter().map(BTreeMap::len).collect();
+    members(&node_of, &adj, &elements, cfg)
+}
+
+/// Kohorte iz grafa usklađenosti (`adj`: partner → postovi ivice). Čvor sa manje od
+/// `cfg.min_partners` partnera se izbacuje, dok takvih ima (k-jezgro); komponenta sa ≥
+/// `cfg.min_cohort_nets` preživelih čvorova je kohorta. Zajedničko za usklađene glasove i
+/// šablone.
+pub(crate) fn members(
+    node_of: &BTreeMap<(&str, &str), usize>,
+    adj: &[BTreeMap<usize, BTreeSet<&str>>],
+    elements: &[usize],
+    cfg: &Config,
+) -> Vec<Member> {
     let k = usize::try_from(cfg.min_partners).unwrap_or(usize::MAX);
     let mut alive: Vec<bool> = adj.iter().map(|e| !e.is_empty()).collect();
     loop {
@@ -246,7 +261,7 @@ pub fn coordinated(votes: &[VoteAt], promotions: &[PromotionAt], cfg: &Config) -
     }
 
     let mut out = Vec::new();
-    for (&(portal, net), &n) in &node_of {
+    for (&(portal, net), &n) in node_of {
         if !alive[n] || (sizes[component[n]] as i64) < cfg.min_cohort_nets {
             continue;
         }
@@ -258,7 +273,7 @@ pub fn coordinated(votes: &[VoteAt], promotions: &[PromotionAt], cfg: &Config) -
         out.push(Member {
             portal: portal.to_owned(),
             net: net.to_owned(),
-            elements: sets[n].len() as i64,
+            elements: elements[n] as i64,
             partners: partners.len() as i64,
             cohort: sizes[component[n]] as i64,
             posts: posts.len() as i64,
@@ -267,19 +282,34 @@ pub fn coordinated(votes: &[VoteAt], promotions: &[PromotionAt], cfg: &Config) -
     out
 }
 
-impl From<Member> for Finding {
-    fn from(m: Member) -> Self {
+/// Prefiksi kohorti (za `exclude` detektora po prefiksu).
+pub fn nets(members: &[Member]) -> Nets {
+    members
+        .iter()
+        .map(|m| (m.portal.clone(), m.net.clone()))
+        .collect()
+}
+
+impl Member {
+    /// Nalaz detektora `detector` (usklađeni glasovi ili šabloni).
+    pub fn finding(self, detector: &str) -> Finding {
         let evidence = json!({
-            "detector": COORDINATED_VOTES, "elements": m.elements, "partners": m.partners,
-            "cohort_nets": m.cohort, "posts": m.posts,
+            "detector": detector, "elements": self.elements, "partners": self.partners,
+            "cohort_nets": self.cohort, "posts": self.posts,
         });
-        Self {
-            detector: COORDINATED_VOTES.to_owned(),
-            portal: m.portal,
-            net: m.net,
-            votes: m.elements,
+        Finding {
+            detector: detector.to_owned(),
+            portal: self.portal,
+            net: self.net,
+            votes: self.elements,
             evidence,
         }
+    }
+}
+
+impl From<Member> for Finding {
+    fn from(m: Member) -> Self {
+        m.finding(COORDINATED_VOTES)
     }
 }
 

@@ -209,8 +209,16 @@ pub async fn vote_cells(pool: &PgPool, cfg: &Config) -> Result<Vec<Cell>, sqlx::
     .await
 }
 
-pub async fn focused_cohorts(pool: &PgPool, cfg: &Config) -> Result<Vec<Focus>, sqlx::Error> {
-    Ok(focused(&vote_cells(pool, cfg).await?, cfg))
+/// Prefiksi (portal, net) kohorti iz grafova (usklađeni glasovi i šabloni): nisu organska
+/// publika, pa ne ulaze u organski udeo detektora po prefiksu.
+pub type Nets = BTreeSet<(String, String)>;
+
+pub async fn focused_cohorts(
+    pool: &PgPool,
+    cfg: &Config,
+    exclude: &Nets,
+) -> Result<Vec<Focus>, sqlx::Error> {
+    Ok(focused(&vote_cells(pool, cfg).await?, exclude, cfg))
 }
 
 /// Težina ravnomerne raspodele u organskom udelu, u „prefiksima" (Laplasovo izravnanje):
@@ -229,12 +237,21 @@ const PRIOR_NETS: f64 = 1.0;
 ///
 /// Mera ne zna za stranu ni za sadržaj: ista je za guranje i za potiskivanje, za bilo kog
 /// autora (koncept §0, §11).
-pub fn focused(cells: &[Cell], cfg: &Config) -> Vec<Focus> {
+///
+/// Prefiks iz `exclude` (kohorta iz grafa) nije pojedinac: rasuta klaka bi organski udeo svog
+/// cilja podigla i zaštitila i velike prefikse.
+pub fn focused(cells: &[Cell], exclude: &Nets, cfg: &Config) -> Vec<Focus> {
     let mut net_votes: BTreeMap<(&str, &str), i64> = BTreeMap::new();
     for c in cells {
         *net_votes.entry((&c.portal, &c.net)).or_default() += c.votes;
     }
-    let individual = |portal: &str, net: &str| net_votes[&(portal, net)] < cfg.min_votes;
+    let excluded: BTreeSet<(&str, &str)> = exclude
+        .iter()
+        .map(|(p, n)| (p.as_str(), n.as_str()))
+        .collect();
+    let individual = |portal: &str, net: &str| {
+        net_votes[&(portal, net)] < cfg.min_votes && !excluded.contains(&(portal, net))
+    };
     let mut individuals: BTreeMap<&str, f64> = BTreeMap::new();
     for (portal, net) in net_votes.keys() {
         if individual(portal, net) {
@@ -686,7 +703,7 @@ mod tests {
         // Obožavalac: malo glasova.
         cells.push(cell("198.18.4.0/24", "a0", 1, 4, 2));
 
-        let found = focused(&cells, &cfg());
+        let found = focused(&cells, &Nets::new(), &cfg());
         let got: Vec<_> = found
             .iter()
             .map(|f| (f.cell.net.as_str(), f.cell.author.as_str(), f.cell.dir))
@@ -697,6 +714,33 @@ mod tests {
     }
 
     #[test]
+    fn scattered_klaka_kept_out_of_focused_baseline() {
+        let mut cells = readers(60);
+        cells.push(cell("198.18.1.0/24", "a0", 1, 20, 3));
+        cells.push(cell("198.18.1.0/24", "a1", -1, 6, 2));
+        // Rasuta klaka: 40 prefiksa po 3 glasa za a0 — „pojedinci" sa udelom 1 baš u ćeliji
+        // kohorte. Organski udeo za a0 bi bio 0,45, pa 20 glasova kohorte za a0 ne bi bili nađeni.
+        let scattered: Vec<_> = (0..40)
+            .map(|k| cell(&format!("198.19.{k}.0/24"), "a0", 1, 3, 3))
+            .collect();
+        cells.extend(scattered.iter().cloned());
+        let cells_of = |found: Vec<Focus>| -> Vec<(String, String)> {
+            found
+                .into_iter()
+                .map(|f| (f.cell.net, f.cell.author))
+                .collect()
+        };
+        let a0 = ("198.18.1.0/24".to_owned(), "a0".to_owned());
+        assert!(!cells_of(focused(&cells, &Nets::new(), &cfg())).contains(&a0));
+        // Usklađeni glasovi ih nađu kao kohortu: van organskog udela.
+        let graph: Nets = scattered
+            .iter()
+            .map(|c| (c.portal.clone(), c.net.clone()))
+            .collect();
+        assert!(cells_of(focused(&cells, &graph, &cfg())).contains(&a0));
+    }
+
+    #[test]
     fn focused_is_symmetric_by_side() {
         // Ogledalo: strana B gura onog koga A potiskuje i obrnuto — ista mera.
         let mut cells = readers(60);
@@ -704,7 +748,7 @@ mod tests {
         cells.push(cell("198.18.1.0/24", "a1", -1, 10, 3));
         cells.push(cell("198.18.2.0/24", "a1", 1, 20, 3));
         cells.push(cell("198.18.2.0/24", "a0", -1, 10, 3));
-        let found = focused(&cells, &cfg());
+        let found = focused(&cells, &Nets::new(), &cfg());
         let nets: BTreeSet<_> = found.iter().map(|f| f.cell.net.as_str()).collect();
         assert_eq!(nets.len(), 2, "{found:?}");
         let lift = |net: &str, dir: i32| {

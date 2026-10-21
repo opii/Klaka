@@ -102,7 +102,10 @@ praga — pravilo preseka traži više postova (koncept §2a). Nivo 4 (smene, ps
 hvataju isti detektori, sporije: smena ima manje poslušnika, a parafraze su manje slične od kopija.
 Klaku rasutu po mnogo prefiksa (svaki poslušnik svoj, par glasova — ispod svih pragova po
 prefiksu) hvata graf usklađenih glasova: isti ciljevi, isti smer, u razmaku ≤ 120 s, kroz više
-postova.
+postova. Ako piše komentare, hvata je graf usklađenih šablona: prefiksi koji dele bar dva ista
+šablona (klaster kopija i parafraza), kroz više postova. Članovi oba grafa ne ulaze u organski
+udeo detektora po prefiksu — rasuta klaka bi ga inače svojim šablonima i glasovima podigla i
+zaštitila i koncentrisanu.
 
 ---
 

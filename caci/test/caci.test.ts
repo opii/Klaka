@@ -8,7 +8,7 @@ import { Prefixes } from "../src/net.js";
 import { parseProfile, schedule } from "../src/profile.js";
 import { match, summarize, summarizeComments, threads, type StoredComment, type StoredVote } from "../src/report.js";
 import { operativePlan, type Action, type CommentAction, type RunLog } from "../src/run.js";
-import { clean, lines } from "../src/texts.js";
+import { clean, lines, templated, TEMPLATES } from "../src/texts.js";
 
 function action(over: Partial<Action>): Action {
   return {
@@ -111,6 +111,26 @@ test("plan poslušnika: ciljevi u krug, komentari na članke ciljeva, rotacija p
   assert.equal(authors.length, 2);
   const dil = operativePlan(p, "diluter", [], ["t1", "t2"], 0);
   assert.ok(dil.every((t) => (t.kind === "vote" ? t.goal === null && t.dir === 1 : t.post === "p-1003")));
+});
+
+test("plan poslušnika: isti šablon kod različitih poslušnika ide na različite članke", () => {
+  // Deljeni šabloni broje samo blizance sa drugog posta: da šablon i članak idu istim korakom,
+  // poslušnici jedne strane se ne bi videli među sobom.
+  const p = parseProfile({
+    name: "x", level: 3, roles: { amplifier: 6 }, votes: 0, comments: 3,
+    targets: { push: ["c1", "c6", "c11"], sink: [] }, mirror: false, window_s: 1, prefixes: 6,
+    delay_ms: { median: 1, sigma: 0 }, token_wait_ms: 0,
+    audience: { readers: 0, read_ms: { median: 1, sigma: 0 }, vote_p: 0 },
+  });
+  const goals = [{ id: "c1", post: "p-1001" }, { id: "c6", post: "p-1002" }, { id: "c11", post: "p-1003" }];
+  const posts = new Map<string, Set<string>>();
+  for (let i = 0; i < 6; i++) {
+    for (const t of operativePlan(p, "amplifier", goals, templated(TEMPLATES.amplifier, 3, i), i)) {
+      if (t.kind === "comment") posts.set(t.text, (posts.get(t.text) ?? new Set()).add(t.post));
+    }
+  }
+  assert.equal(posts.size, 5);
+  assert.ok([...posts.values()].every((s) => s.size >= 2), JSON.stringify([...posts].map(([k, s]) => [k, [...s]])));
 });
 
 test("komentari: spajanje po ID-ju, udeo klake u javnim komentarima članka", () => {

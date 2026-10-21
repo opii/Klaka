@@ -5,7 +5,10 @@
 //!   (nalepljen ili upisan skriptom); potpis operatera iz `events.md` §2;
 //! - **deljeni šabloni** (`shared-templates`), tekstualna: komentari prefiksa imaju blizanca
 //!   iste formulacije na drugom postu — kopiju (MinHash) ili parafrazu (embeddings,
-//!   `docs/llm.md` §5a) — mnogo češće nego organska publika, kroz više postova.
+//!   `docs/llm.md` §5a) — mnogo češće nego organska publika, kroz više postova;
+//! - **usklađeni šabloni** (`coordinated-templates`), tekstualna, za klaku rasutu po prefiksima
+//!   (svaki ispod `min_comments`): graf prefiksa koji dele iste šablone kroz postove, kao
+//!   usklađeni glasovi (`coordinated.rs`).
 //!
 //! Sadržaj se ne ocenjuje: ni stav, ni tema, ni ton — samo da li se ista formulacija ponavlja.
 
@@ -15,10 +18,12 @@ use klaka_llm::{Embedder, LlmError};
 use serde_json::json;
 use sqlx::PgPool;
 
-use crate::{Config, Finding, binomial_tail};
+use crate::coordinated::{Member, members};
+use crate::{Config, Finding, Nets, binomial_tail};
 
 pub const UNWRITTEN_COMMENTS: &str = "unwritten-comments";
 pub const SHARED_TEMPLATES: &str = "shared-templates";
+pub const COORDINATED_TEMPLATES: &str = "coordinated-templates";
 
 /// Kohorta komentara jednog prefiksa u prozoru; `flagged` = komentari koje je detektor označio.
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
@@ -244,17 +249,29 @@ pub async fn paraphrase_pairs(
     Ok(pairs)
 }
 
+/// Nalazi detektora šablona iz istog prozora.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Templates {
+    /// `shared-templates`: prefiksi čiji su komentari mnogo češće šablonski nego kod publike.
+    pub cohorts: Vec<TemplateCohort>,
+    /// `coordinated-templates`: rasuti prefiksi povezani istim šablonima kroz postove.
+    pub members: Vec<Member>,
+}
+
+/// Šabloni iz prozora; `exclude` su prefiksi kohorti drugih grafova (usklađeni glasovi), koji ne
+/// ulaze u organski udeo.
 pub async fn template_cohorts(
     pool: &PgPool,
     cfg: &Config,
     model: Option<&str>,
-) -> Result<Vec<TemplateCohort>, sqlx::Error> {
+    exclude: &Nets,
+) -> Result<Templates, sqlx::Error> {
     let texts = comment_texts(pool, cfg).await?;
     let pairs = match model {
         Some(m) => paraphrase_pairs(pool, cfg, m).await?,
         None => Vec::new(),
     };
-    Ok(templates(&texts, &pairs, cfg))
+    Ok(templates(&texts, &pairs, exclude, cfg))
 }
 
 /// MinHash LSH: 16 traka po 4 reda potpisa. Par sa Jaccard-ovom sličnošću s deli bar jednu
@@ -266,9 +283,10 @@ const ROWS: usize = MINHASH_K / BANDS;
 /// sa hiljadu istih kopija tako ne pravi milion poređenja.
 const MAX_CHECKS: usize = 8;
 
-/// Koji komentari imaju kopiju (MinHash ≥ `min`) na drugom postu — preko LSH kofa, ne
-/// poređenjem svakog para: posao raste linearno sa brojem komentara.
-fn copies(comments: &[CommentText], sigs: &[[u64; MINHASH_K]], min: f64) -> Vec<bool> {
+/// Parovi kopija (MinHash ≥ `min`) na različitim postovima — preko LSH kofa, ne poređenjem
+/// svakog para: posao raste linearno sa brojem komentara. Po komentaru najviše jedan par:
+/// dovoljno za „ima blizanca", a klaster šablona se sklopi iz parova (Union-Find u `templates`).
+fn copies(comments: &[CommentText], sigs: &[[u64; MINHASH_K]], min: f64) -> Vec<(usize, usize)> {
     let mut buckets: HashMap<(&str, usize, u64), Vec<usize>> = HashMap::new();
     for (i, sig) in sigs.iter().enumerate() {
         for band in 0..BANDS {
@@ -281,6 +299,7 @@ fn copies(comments: &[CommentText], sigs: &[[u64; MINHASH_K]], min: f64) -> Vec<
         }
     }
     let mut copy = vec![false; comments.len()];
+    let mut pairs = Vec::new();
     for list in buckets.values().filter(|l| l.len() > 1) {
         // Kofa po postovima, do `MAX_CHECKS` predstavnika po postu. Kandidati za i su
         // predstavnici drugih postova, pa se preskače najviše jedna grupa (i-ov post): i kofa sa
@@ -312,12 +331,108 @@ fn copies(comments: &[CommentText], sigs: &[[u64; MINHASH_K]], min: f64) -> Vec<
                 if minhash_similarity(&sigs[i], &sigs[j]) >= min {
                     copy[i] = true;
                     copy[j] = true;
+                    pairs.push((i, j));
                     break;
                 }
             }
         }
     }
-    copy
+    pairs
+}
+
+/// Disjunktni skupovi (Union-Find): klasteri šablona su komponente povezanosti parova blizanaca.
+struct Clusters(Vec<usize>);
+
+impl Clusters {
+    fn new(n: usize) -> Self {
+        Self((0..n).collect())
+    }
+
+    fn add(&mut self) -> usize {
+        self.0.push(self.0.len());
+        self.0.len() - 1
+    }
+
+    fn find(&mut self, mut x: usize) -> usize {
+        while self.0[x] != x {
+            self.0[x] = self.0[self.0[x]];
+            x = self.0[x];
+        }
+        x
+    }
+
+    fn union(&mut self, a: usize, b: usize) {
+        let (a, b) = (self.find(a), self.find(b));
+        self.0[a.max(b)] = a.min(b);
+    }
+}
+
+/// Klaster sa više prefiksa od ovoga se ne uparuje (kvadratan broj parova). Tako velik klaster
+/// je opšta fraza („Bravo!") koju piše cela publika — slab dokaz.
+const MAX_CLUSTER_NETS: usize = 500;
+
+/// Usklađeni šabloni (`coordinated-templates`): klaka rasuta po mnogo prefiksa, svaki sa par
+/// komentara — ispod `min_comments`, pa je deljeni šabloni po prefiksu ne vide. Graf kao kod
+/// usklađenih glasova (`coordinated.rs`): čvor je prefiks, element je klaster šablona (`cluster`:
+/// komponenta blizanaca sa drugih postova). Dva prefiksa su usklađena kad dele bar dva klastera,
+/// na ≥ `cfg.min_posts` postova, uz Jaccard-ovu sličnost skupova klastera ≥ `cfg.min_jaccard`
+/// (svaki komentar bez blizanca je svoj klaster, pa CGNAT sa mnogo komentara ni sa kim nema
+/// sličan skup); pa k-jezgro i komponenta ≥ `cfg.min_cohort_nets`. Dva različita šablona drže
+/// publiku van grafa: jedna opšta fraza ne povezuje dva čitaoca.
+fn template_graph(comments: &[CommentText], cluster: &[usize], cfg: &Config) -> Vec<Member> {
+    let mut size: HashMap<usize, usize> = HashMap::new();
+    for &c in cluster {
+        *size.entry(c).or_default() += 1;
+    }
+    // Čvorovi i njihovi elementi: klaster → postovi komentara prefiksa u njemu.
+    let mut node_of: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    let mut sets: Vec<BTreeMap<usize, BTreeSet<&str>>> = Vec::new();
+    for (c, &k) in comments.iter().zip(cluster) {
+        let next = node_of.len();
+        let n = *node_of.entry((&c.portal, &c.net)).or_insert(next);
+        if n == sets.len() {
+            sets.push(BTreeMap::new());
+        }
+        sets[n].entry(k).or_default().insert(&c.post);
+    }
+
+    // Klaster → prefiksi koji ga dele. Prefiks bez bar dva deljena klastera na bar `min_posts`
+    // postova ne može imati ivicu — ne uparuje se (pojedinci sa jednim komentarom).
+    let mut holders: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (n, set) in sets.iter().enumerate() {
+        let shared: Vec<_> = set.iter().filter(|(k, _)| size[*k] > 1).collect();
+        let posts: BTreeSet<&str> = shared.iter().flat_map(|(_, p)| p.iter().copied()).collect();
+        if shared.len() >= 2 && posts.len() as i64 >= cfg.min_posts {
+            for (&k, _) in shared {
+                holders.entry(k).or_default().push(n);
+            }
+        }
+    }
+    holders.retain(|_, list| list.len() >= 2 && list.len() <= MAX_CLUSTER_NETS);
+    let mut co: HashMap<(usize, usize), usize> = HashMap::new();
+    for list in holders.values() {
+        for (x, &a) in list.iter().enumerate() {
+            for &b in &list[x + 1..] {
+                *co.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+    }
+
+    let mut adj: Vec<BTreeMap<usize, BTreeSet<&str>>> = vec![BTreeMap::new(); sets.len()];
+    for (&(a, b), &count) in co.iter().filter(|&(_, &c)| c >= 2) {
+        let posts: BTreeSet<&str> = sets[a]
+            .iter()
+            .filter(|(k, _)| holders.contains_key(k) && sets[b].contains_key(k))
+            .flat_map(|(k, p)| p.iter().chain(&sets[b][k]).copied())
+            .collect();
+        let jaccard = count as f64 / (sets[a].len() + sets[b].len() - count) as f64;
+        if posts.len() as i64 >= cfg.min_posts && jaccard >= cfg.min_jaccard {
+            adj[a].insert(b, posts.clone());
+            adj[b].insert(a, posts);
+        }
+    }
+    let elements: Vec<usize> = sets.iter().map(BTreeMap::len).collect();
+    members(&node_of, &adj, &elements, cfg)
 }
 
 /// Težina prethodne pretpostavke u organskom udelu šablonskih komentara, u „prefiksima": dok
@@ -339,19 +454,31 @@ const PRIOR_SHARE: f64 = 0.1;
 /// je prosek udela šablonskih po pojedincima — prefiksima sa manje od `min_comments` komentara,
 /// svaki jedan glas, kao kod usmerenih glasova; i ovde presuda traži veličinu efekta i
 /// značajnost, na više postova.
+///
+/// Pojedinac koji je u kohorti iz grafa — usklađeni šabloni (`template_graph`, isti prozor) ili
+/// `exclude` (usklađeni glasovi) — nije organska publika: rasuta klaka bi inače organski udeo
+/// podigla svojim šablonima i zaštitila i velike prefikse.
 pub fn templates(
     comments: &[CommentText],
     paraphrases: &[(String, String, String)],
+    exclude: &Nets,
     cfg: &Config,
-) -> Vec<TemplateCohort> {
+) -> Templates {
     let sigs: Vec<_> = comments.iter().map(|c| minhash(&c.text)).collect();
     let index: HashMap<(&str, &str), usize> = comments
         .iter()
         .enumerate()
         .map(|(i, c)| ((c.portal.as_str(), c.comment.as_str()), i))
         .collect();
-    let copy = copies(comments, &sigs, cfg.min_minhash);
+    let mut clusters = Clusters::new(comments.len());
+    let mut copy = vec![false; comments.len()];
+    for (i, j) in copies(comments, &sigs, cfg.min_minhash) {
+        copy[i] = true;
+        copy[j] = true;
+        clusters.union(i, j);
+    }
     let mut templated = vec![false; comments.len()];
+    let mut old: HashMap<(&str, &str), usize> = HashMap::new();
     for (portal, a, b) in paraphrases {
         let Some(&i) = index.get(&(portal.as_str(), a.as_str())) else {
             continue;
@@ -360,12 +487,27 @@ pub fn templates(
             Some(&j) if comments[i].post != comments[j].post => {
                 templated[i] = true;
                 templated[j] = true;
+                clusters.union(i, j);
             }
             Some(_) => {}
-            // Blizanac stariji od prozora (`paraphrase_pairs` traži samo druge postove).
-            None => templated[i] = true,
+            // Blizanac stariji od prozora (`paraphrase_pairs` traži samo druge postove). I on je
+            // čvor klastera: dva komentara iz prozora se spoje i preko istog starog blizanca.
+            None => {
+                templated[i] = true;
+                let o = *old
+                    .entry((portal.as_str(), b.as_str()))
+                    .or_insert_with(|| clusters.add());
+                clusters.union(i, o);
+            }
         }
     }
+    let cluster: Vec<usize> = (0..comments.len()).map(|i| clusters.find(i)).collect();
+    let members = template_graph(comments, &cluster, cfg);
+    let cohort: BTreeSet<(&str, &str)> = exclude
+        .iter()
+        .map(|(p, n)| (p.as_str(), n.as_str()))
+        .chain(members.iter().map(|m| (m.portal.as_str(), m.net.as_str())))
+        .collect();
 
     #[derive(Default)]
     struct Net<'a> {
@@ -386,9 +528,12 @@ pub fn templates(
         }
         n.posts.insert(&c.post);
     }
-    // Organski udeo samo iz pojedinaca: prefiksa koji ni sami ne mogu ući u kohortu.
+    // Organski udeo samo iz pojedinaca: prefiksa koji ni sami ne mogu ući u kohortu, a nisu ni u
+    // kohorti iz grafa.
     let mut portals: BTreeMap<&str, (f64, f64)> = BTreeMap::new();
-    for ((portal, _), n) in nets.iter().filter(|(_, n)| n.comments < cfg.min_comments) {
+    let individual =
+        |key: &(&str, &str), n: &Net| n.comments < cfg.min_comments && !cohort.contains(key);
+    for ((portal, _), n) in nets.iter().filter(|(key, n)| individual(key, n)) {
         let e = portals.entry(portal).or_default();
         e.0 += n.templated as f64 / n.comments as f64;
         e.1 += 1.0;
@@ -420,7 +565,10 @@ pub fn templates(
             });
         }
     }
-    out
+    Templates {
+        cohorts: out,
+        members,
+    }
 }
 
 impl From<TemplateCohort> for Finding {
@@ -724,7 +872,7 @@ mod tests {
             ));
         }
 
-        let found = templates(&c, &pairs, &cfg());
+        let found = templates(&c, &pairs, &Nets::new(), &cfg()).cohorts;
         let nets: Vec<_> = found.iter().map(|f| f.net.as_str()).collect();
         assert_eq!(nets, ["198.18.1.0/24", "198.18.2.0/24"], "{found:?}");
         assert_eq!((found[0].templated, found[0].copies), (6, 6));
@@ -747,7 +895,7 @@ mod tests {
         let old: Vec<_> = (0..6)
             .map(|i| ("demo.local".to_owned(), format!("a{i}"), format!("juce{i}")))
             .collect();
-        let found = templates(&c, &old, &cfg());
+        let found = templates(&c, &old, &Nets::new(), &cfg()).cohorts;
         assert_eq!(
             found
                 .iter()
@@ -783,7 +931,11 @@ mod tests {
             .flat_map(|i| (4..8).filter(move |&j| j != i).map(move |j| (i, j)))
             .map(|(i, j)| ("demo.local".to_owned(), format!("a{i}"), format!("a{j}")))
             .collect();
-        assert!(templates(&c, &pairs, &cfg()).is_empty());
+        assert!(
+            templates(&c, &pairs, &Nets::new(), &cfg())
+                .cohorts
+                .is_empty()
+        );
     }
 
     #[test]
@@ -801,9 +953,111 @@ mod tests {
                 )
             })
             .collect();
-        let found = templates(&c, &[], &cfg());
+        let found = templates(&c, &[], &Nets::new(), &cfg()).cohorts;
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!((found[0].templated, found[0].baseline), (6, PRIOR_SHARE));
+    }
+
+    const KLAKA: [&str; 5] = [
+        "Odlično rečeno.",
+        "Potpuno se slažem, bravo.",
+        "Ovo je jedini razuman komentar ovde.",
+        "Tačno tako, nema šta da se doda.",
+        "Konačno neko da kaže kako jeste.",
+    ];
+
+    /// Rasuta klaka: `n` prefiksa sa po 3 komentara (jedan po članku), šabloni redom kao u caci-ju.
+    fn scattered(n: usize) -> Vec<CommentText> {
+        (0..n)
+            .flat_map(|k| {
+                (0..3).map(move |i| {
+                    text(
+                        &format!("198.18.{k}.0/24"),
+                        &format!("p-{}", (2 * k + i) % 3),
+                        &format!("s{k}-{i}"),
+                        &format!("s{k}-{i}"),
+                        KLAKA[(k + i) % 5],
+                    )
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scattered_klaka_found_by_template_graph_and_kept_out_of_baseline() {
+        // 24 prefiksa po 3 šablonska komentara: nijedan ne prelazi min_comments, a kao
+        // „pojedinci" bi organski udeo podigli na 0,40 — lift ne bi mogao preći 2,5, pa ni
+        // koncentrisan prefiks sa samim šablonima ne bi bio nađen.
+        let mut c = audience(40);
+        c.extend(scattered(24));
+        for i in 0..6 {
+            c.push(text(
+                "198.19.1.0/24",
+                &format!("p-{}", i % 3),
+                &format!("k{i}"),
+                &format!("k{i}"),
+                KLAKA[i % 5],
+            ));
+        }
+        let found = templates(&c, &[], &Nets::new(), &cfg());
+        let members: BTreeSet<_> = found.members.iter().map(|m| m.net.as_str()).collect();
+        for k in 0..24 {
+            assert!(
+                members.contains(format!("198.18.{k}.0/24").as_str()),
+                "{members:?}"
+            );
+        }
+        assert!(
+            members.iter().all(|n| !n.starts_with("10.")),
+            "publika: {members:?}"
+        );
+        let nets: Vec<_> = found.cohorts.iter().map(|f| f.net.as_str()).collect();
+        assert_eq!(nets, ["198.19.1.0/24"], "{:?}", found.cohorts);
+        // Publika ima par slučajnih kopija (dve od tri iste reči), pa organski udeo nije nula.
+        assert!(found.cohorts[0].baseline < 0.1, "{:?}", found.cohorts);
+    }
+
+    #[test]
+    fn popular_phrase_and_cgnat_make_no_template_graph() {
+        // Publika: 30 čitalaca, svaki sa istom popularnom frazom i jednim svojim komentarom, na
+        // dva članka — dele jedan klaster, a ivica traži dva.
+        let mut c = audience(40);
+        for k in 0..30 {
+            c.push(text(
+                &format!("10.1.{k}.0/24"),
+                &format!("p-{}", k % 3),
+                &format!("b{k}"),
+                &format!("b{k}"),
+                "Bravo, svaka čast!",
+            ));
+        }
+        // CGNAT: 20 komentara, od toga dve popularne fraze; deli ih sa četiri čitaoca koji su
+        // napisali iste dve fraze, ali ni sa kim nema sličan skup (Jaccard).
+        for i in 0..20 {
+            let t = match i {
+                0 => "Bravo, svaka čast!".to_owned(),
+                1 => "Tačno tako, nema šta da se doda.".to_owned(),
+                _ => format!("{} {} {i}", WORDS[i % 40], WORDS[(i * 7) % 40]),
+            };
+            c.push(text(
+                "198.18.200.0/24",
+                &format!("p-{}", i % 3),
+                &format!("g{i}"),
+                &format!("g{i}"),
+                &t,
+            ));
+        }
+        for k in 0..4 {
+            c.push(text(
+                &format!("10.1.{k}.0/24"),
+                &format!("p-{}", (k + 1) % 3),
+                &format!("t{k}"),
+                &format!("t{k}"),
+                "Tačno tako, nema šta da se doda.",
+            ));
+        }
+        let found = templates(&c, &[], &Nets::new(), &cfg());
+        assert!(found.members.is_empty(), "{:?}", found.members);
     }
 
     #[test]
@@ -818,7 +1072,7 @@ mod tests {
                 "Ima li neko recept za pitu?",
             ));
         }
-        assert!(templates(&c, &[], &cfg()).is_empty());
+        assert!(templates(&c, &[], &Nets::new(), &cfg()).cohorts.is_empty());
     }
 
     #[test]
@@ -879,12 +1133,24 @@ mod tests {
             ));
         }
         let sigs: Vec<_> = c.iter().map(|x| minhash(&x.text)).collect();
-        let copy = copies(&c, &sigs, 0.5);
+        let mut copy = vec![false; c.len()];
+        let mut clusters = Clusters::new(c.len());
+        for (i, j) in copies(&c, &sigs, 0.5) {
+            copy[i] = true;
+            copy[j] = true;
+            clusters.union(i, j);
+        }
         assert!(copy[..3_000].iter().all(|&x| x), "kopije");
         assert!(copy[6_000], "sitna izmena");
         let organic = copy[3_000..6_000].iter().filter(|&&x| x).count();
         assert!(organic < 30, "različiti tekstovi: {organic} sa blizancem");
         assert!(!copy[6_001..].iter().any(|&x| x), "kopije na istom postu");
+        // Po komentaru je jedan par, ali klaster je jedan: kopije i izmena su isti šablon.
+        let edit = clusters.find(6_000);
+        assert!(
+            (0..3_000).all(|i| clusters.find(i) == edit),
+            "jedan klaster"
+        );
     }
 
     #[test]

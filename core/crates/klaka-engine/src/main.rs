@@ -28,10 +28,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use klaka_db::MIGRATOR;
 use klaka_engine::comments::{
-    SHARED_TEMPLATES, UNWRITTEN_COMMENTS, embed_pending, purge_embeddings, template_cohorts,
-    unwritten_cohorts,
+    COORDINATED_TEMPLATES, SHARED_TEMPLATES, UNWRITTEN_COMMENTS, embed_pending, purge_embeddings,
+    template_cohorts, unwritten_cohorts,
 };
-use klaka_engine::coordinated::{COORDINATED_VOTES, coordinated_cohorts};
+use klaka_engine::coordinated::{COORDINATED_VOTES, coordinated_cohorts, nets};
 use klaka_engine::{
     Config, FOCUSED_VOTES, Finding, GHOST_VIEWS, NetVerdict, UNREAD_VOTES, detectors,
     focused_cohorts, ghost_cohorts, group_by_net, issue_net_shadow, unread_cohorts,
@@ -131,24 +131,31 @@ async fn main() {
             &mut findings,
         );
         collect(
-            FOCUSED_VOTES,
-            focused_cohorts(&pool, &cfg).await,
-            &mut findings,
-        );
-        collect(
-            COORDINATED_VOTES,
-            coordinated_cohorts(&pool, &cfg).await,
-            &mut findings,
-        );
-        collect(
             UNWRITTEN_COMMENTS,
             unwritten_cohorts(&pool, &cfg).await,
             &mut findings,
         );
+        // Grafovi prvo: prefiksi njihovih kohorti (rasuta klaka) ne ulaze u organski udeo
+        // detektora po prefiksu.
+        let coordinated = coordinated_cohorts(&pool, &cfg).await;
+        let mut graph = nets(coordinated.as_deref().unwrap_or_default());
         let model = embedder.as_ref().map(|e| e.model());
+        match template_cohorts(&pool, &cfg, model, &graph).await {
+            Ok(t) => {
+                graph.extend(nets(&t.members));
+                findings.extend(t.cohorts.into_iter().map(Finding::from));
+                findings.extend(
+                    t.members
+                        .into_iter()
+                        .map(|m| m.finding(COORDINATED_TEMPLATES)),
+                );
+            }
+            Err(e) => eprintln!("klaka-engine: detektor {SHARED_TEMPLATES}: {e}"),
+        }
+        collect(COORDINATED_VOTES, coordinated, &mut findings);
         collect(
-            SHARED_TEMPLATES,
-            template_cohorts(&pool, &cfg, model).await,
+            FOCUSED_VOTES,
+            focused_cohorts(&pool, &cfg, &graph).await,
             &mut findings,
         );
         for ((portal, net), findings) in group_by_net(findings) {
