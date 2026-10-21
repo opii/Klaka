@@ -6,11 +6,12 @@ use std::time::Duration;
 use klaka_db::{Batch, MIGRATOR, PgStore, Row, Source, Store, maintain_partitions};
 use klaka_engine::comments::{EMBEDDING_DIM, embed_pending, template_cohorts, unwritten_cohorts};
 use klaka_engine::coordinated::coordinated_cohorts;
+use klaka_engine::describe::{Outcome, describe_next};
 use klaka_engine::{
     Config, GHOST_VIEWS, Issued, NetVerdict, Nets, focused_cohorts, ghost_cohorts,
     issue_net_shadow, net_key, retro_key, unread_cohorts,
 };
-use klaka_llm::{Embedder, LlmError};
+use klaka_llm::{Embedder, JsonTask, LlmError, LlmOutput, LlmProvider};
 use serde_json::json;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -636,6 +637,12 @@ async fn verdict_sends_counted_actions_of_the_prefix_to_retro() {
         .await
         .unwrap();
     assert_eq!(verdicts, 1, "dopuna je pod istom presudom");
+    let jobs: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM cohort_summary WHERE status = 'pending'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(jobs, 1, "opis kohorte uz novu presudu, ne uz dopunu");
 
     let audit: Vec<String> = sqlx::query_scalar(
         "SELECT concat_ws(' ', kind, comment, vid, target) FROM verdict_retro ORDER BY kind",
@@ -826,6 +833,156 @@ async fn rejected_verdict_is_neither_topped_up_nor_renewed() {
         .query_async::<()>(&mut valkey)
         .await
         .unwrap();
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
+
+/// Generativni model koji vraća zadat izlaz i pamti ulaze.
+struct FakeLlm {
+    reply: serde_json::Value,
+    seen: std::sync::Mutex<Vec<String>>,
+}
+
+impl LlmProvider for FakeLlm {
+    fn model(&self) -> &str {
+        "fake-llm@0"
+    }
+
+    fn personal_allowed(&self) -> bool {
+        true
+    }
+
+    async fn generate_json(&self, task: &JsonTask<'_>) -> Result<LlmOutput, LlmError> {
+        self.seen.lock().unwrap().push(task.input.to_owned());
+        Ok(LlmOutput {
+            json: self.reply.clone(),
+            model: "fake-llm@0".into(),
+            latency_ms: 1200,
+        })
+    }
+}
+
+/// Presuda za `net` (bez Valkey-ja) sa poslom opisa; komentari prefiksa pre nje.
+async fn described_verdict(pool: &PgPool, net: &str, comments: &[(&str, &str)]) -> i64 {
+    let store = PgStore(pool.clone());
+    let mut rows = vec![Row {
+        kind: "post",
+        t: 1,
+        vid: None,
+        post: Some("p-1".to_owned()),
+        net: None,
+        data: json!({"type": "post", "title": "Park dobija novu stazu", "body": "…"}),
+    }];
+    for (i, (post, text)) in comments.iter().enumerate() {
+        rows.push(Row {
+            kind: "comment",
+            t: 1,
+            vid: Some(format!("v{i}")),
+            post: Some((*post).to_owned()),
+            net: Some(net.to_owned()),
+            data: json!({"type": "comment", "comment": format!("k{i}"), "text": text, "decision": "count"}),
+        });
+    }
+    store
+        .insert(Batch {
+            portal: "demo.local".into(),
+            source: Source::Server,
+            rows,
+        })
+        .await
+        .unwrap();
+    let (id,): (i64,) = sqlx::query_as(
+        "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence)
+         VALUES ('demo.local', 'net', $1, 'shadow', 9e12, 1, 'shared-templates', $2) RETURNING id",
+    )
+    .bind(net)
+    .bind(json!({"window_s": 600, "cohorts": [{"detector": "shared-templates", "templated": 2}]}))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO cohort_summary (verdict_id) VALUES ($1)")
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+    id
+}
+
+#[tokio::test]
+async fn cohort_is_described_and_bad_output_is_retried_then_failed() {
+    let Some((admin, pool, schema)) = schema("describe").await else {
+        return;
+    };
+    let good = FakeLlm {
+        reply: json!({"poruka": "Hvale iste komentare.", "stav": "podrška", "kohezija": "visoka",
+                      "toksicnost": "nema", "sazetak": "Dva šablonska komentara na jednom članku.",
+                      "visak": 1}),
+        seen: Default::default(),
+    };
+    let id = described_verdict(
+        &pool,
+        "198.18.70.0/24",
+        &[("p-1", "Odlično rečeno."), ("p-1", "Bravo!")],
+    )
+    .await;
+    assert_eq!(
+        describe_next(&pool, &good).await.unwrap(),
+        Some((id, Outcome::Done))
+    );
+    let seen = good.seen.lock().unwrap().clone();
+    assert!(
+        seen[0].contains("Park dobija novu stazu") && seen[0].contains("[p-1] Bravo!"),
+        "{seen:?}"
+    );
+    let (status, output, model, sha, task): (String, serde_json::Value, String, String, String) =
+        sqlx::query_as(
+            "SELECT status, output, model, input_sha256, task FROM cohort_summary WHERE verdict_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        (status.as_str(), model.as_str(), task.as_str()),
+        ("done", "fake-llm@0", "G2")
+    );
+    assert_eq!(sha.len(), 64);
+    assert!(
+        output.get("visak").is_none() && output["stav"] == "podrška",
+        "{output}"
+    );
+    assert_eq!(
+        describe_next(&pool, &good).await.unwrap(),
+        None,
+        "nema više posla"
+    );
+
+    // Neispravan izlaz: jednom ponovo, pa neuspeh.
+    let bad = FakeLlm {
+        reply: json!({"poruka": "x", "stav": "neutralno", "kohezija": "visoka",
+                      "toksicnost": "nema", "sazetak": "x"}),
+        seen: Default::default(),
+    };
+    let id = described_verdict(&pool, "198.18.71.0/24", &[("p-1", "Sramota.")]).await;
+    assert!(matches!(
+        describe_next(&pool, &bad).await.unwrap(),
+        Some((i, Outcome::Retry(_))) if i == id
+    ));
+    assert!(matches!(
+        describe_next(&pool, &bad).await.unwrap(),
+        Some((i, Outcome::Failed(e))) if i == id && e.contains("stav")
+    ));
+
+    // Prefiks bez komentara (samo glasovi): nema šta da se opiše.
+    let id = described_verdict(&pool, "198.18.72.0/24", &[]).await;
+    assert_eq!(
+        describe_next(&pool, &good).await.unwrap(),
+        Some((id, Outcome::Skipped))
+    );
+
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)

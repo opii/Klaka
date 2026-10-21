@@ -919,6 +919,7 @@ dependencies = [
  "klaka-llm",
  "redis",
  "serde_json",
+ "sha2",
  "sqlx",
  "tokio",
 ]
@@ -930,6 +931,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

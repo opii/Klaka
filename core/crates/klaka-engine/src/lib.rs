@@ -25,6 +25,7 @@
 
 pub mod comments;
 pub mod coordinated;
+pub mod describe;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -567,6 +568,12 @@ pub async fn issue_net_shadow(
             .fetch_one(&mut *tx)
             .await
             .map_err(IssueError::Db)?;
+            // Opis kohorte za recenzenta (G2/G3, `describe.rs`) — posao uz novu presudu.
+            sqlx::query("INSERT INTO cohort_summary (verdict_id) VALUES ($1)")
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(IssueError::Db)?;
             (id, rev, until_ms)
         }
     };

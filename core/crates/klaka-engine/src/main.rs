@@ -20,7 +20,9 @@
 //!   usklađeni glasovi: razmak, sličnost skupova, partnera, prefiksa, prozor promocije
 //!   (120, 0.5, 2, 5, 600)
 //! - `KLAKA_OLLAMA_URL`, `KLAKA_EMBED_MODEL`  embeddings komentara (bez njih: samo MinHash)
-//! - `KLAKA_RETENTION_DAYS`      koliko dugo se čuvaju embeddings, kao i događaji (30)
+//! - `KLAKA_LLM_MODEL`           opis kohorte za recenzenta (G2/G3), u pozadini; bez njega nema
+//!   opisa, presude rade isto
+//! - `KLAKA_RETENTION_DAYS`      koliko dugo se čuvaju embeddings i opisi kohorti, kao i događaji (30)
 //! - `KLAKA_ENGINE_TTL_S`        trajanje presude (3600)
 //! - `KLAKA_ENGINE_RETRO_S`      naknadni shadow: akcije prefiksa iz ovoliko sekundi pre presude
 //!   (podrazumevano isto kao prozor)
@@ -34,6 +36,7 @@ use klaka_engine::comments::{
     template_cohorts, unwritten_cohorts,
 };
 use klaka_engine::coordinated::{COORDINATED_VOTES, coordinated_cohorts, nets};
+use klaka_engine::describe::{Outcome, describe_next, purge_summaries};
 use klaka_engine::{
     Config, FOCUSED_VOTES, Finding, GHOST_VIEWS, NetVerdict, UNREAD_VOTES, detectors,
     focused_cohorts, ghost_cohorts, group_by_net, issue_net_shadow, unread_cohorts,
@@ -90,6 +93,14 @@ async fn main() {
     let retention_days: i32 = env("KLAKA_RETENTION_DAYS", 30);
     let mut embedder: Option<Ollama> = None;
     let mut embed_error: Option<String> = None;
+    if let (Some(url), Some(model)) = (
+        ollama_url.clone(),
+        std::env::var("KLAKA_LLM_MODEL")
+            .ok()
+            .filter(|m| !m.trim().is_empty()),
+    ) {
+        tokio::spawn(describe_worker(pool.clone(), url, model));
+    }
 
     eprintln!(
         "klaka-engine: detektori {GHOST_VIEWS}, {UNREAD_VOTES}, {FOCUSED_VOTES}, \
@@ -125,6 +136,9 @@ async fn main() {
         }
         if let Err(e) = purge_embeddings(&pool, retention_days).await {
             eprintln!("klaka-engine: brisanje starih embeddings-a: {e}");
+        }
+        if let Err(e) = purge_summaries(&pool, retention_days).await {
+            eprintln!("klaka-engine: brisanje starih opisa kohorti: {e}");
         }
 
         let mut findings = Vec::new();
@@ -198,6 +212,49 @@ async fn main() {
 
 const EMBED_TIMEOUT: Duration = Duration::from_secs(60);
 const EMBED_BATCH: i64 = 32;
+/// Generativni model na CPU-u: desetine sekundi po opisu; ovo je gornja granica jednog poziva.
+const DESCRIBE_TIMEOUT: Duration = Duration::from_secs(300);
+const DESCRIBE_IDLE: Duration = Duration::from_secs(5);
+const DESCRIBE_RETRY: Duration = Duration::from_secs(30);
+
+/// Opisi kohorti (G2/G3), jedan po jedan, odvojeno od kruga detekcije: detekcija nikad ne čeka
+/// model. Bez modela (preuzimanje još traje) pokušava ponovo.
+async fn describe_worker(pool: PgPool, url: String, model: String) {
+    let mut error: Option<String> = None;
+    let llm = loop {
+        match Ollama::connect(&url, &model, DESCRIBE_TIMEOUT).await {
+            Ok(llm) => break llm,
+            Err(e) => warn_once(&mut error, format!("opis kohorte: model nedostupan: {e}")),
+        }
+        tokio::time::sleep(DESCRIBE_RETRY).await;
+    };
+    eprintln!(
+        "klaka-engine: opis kohorte {}",
+        klaka_llm::LlmProvider::model(&llm)
+    );
+    loop {
+        match describe_next(&pool, &llm).await {
+            Ok(Some((id, outcome))) => {
+                error = None;
+                match outcome {
+                    Outcome::Done => eprintln!("klaka-engine: opis kohorte za presudu {id}"),
+                    Outcome::Skipped => {}
+                    Outcome::Retry(e) => {
+                        eprintln!("klaka-engine: opis kohorte {id}: {e} — ponovo kasnije")
+                    }
+                    Outcome::Failed(e) => {
+                        eprintln!("klaka-engine: opis kohorte {id} nije uspeo: {e}")
+                    }
+                }
+            }
+            Ok(None) => tokio::time::sleep(DESCRIBE_IDLE).await,
+            Err(e) => {
+                warn_once(&mut error, format!("opis kohorte: baza: {e}"));
+                tokio::time::sleep(DESCRIBE_RETRY).await;
+            }
+        }
+    }
+}
 
 /// Ista greška se ne ponavlja u logu svakog kruga.
 fn warn_once(last: &mut Option<String>, msg: String) {

@@ -108,6 +108,10 @@ uspeha — preciznost reda za pregled (koncept §11).
   `none` istekne, a prefiks je i dalje nalaz, engine izdaje novu presudu, i ona ide u red.
 - Naknadno skinute akcije ostaju skinute (§5).
 
+Uz presudu sa komentarima recenzent vidi i opis modela (šta grupa poručuje, stav, kohezija,
+toksičnost, sažetak; `docs/llm.md` §5b). Opis je savetodavan: presuda ne zavisi od njega, a
+odluka je recenzentova.
+
 UI recenzenta je na posebnom listener-u, nikad na javnoj adresi `/v1/view`. Prijava je HTTP
 Basic (ime i token recenzenta), a odluku prima samo sa istog origin-a (browser bi Basic podatke
 poslao i sa tuđe stranice). Bez JavaScript-a; sadržaj od korisnika portala (tekst komentara,

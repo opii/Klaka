@@ -293,6 +293,14 @@ struct VoteRow {
     votes: i64,
 }
 
+/// Opis kohorte iz modela (G2/G3, `klaka-engine` `describe.rs`): savetodavno.
+struct Summary {
+    /// Stanje kad opisa nema (čeka, nema komentara, nije uspeo); prazno kad ima.
+    state: String,
+    fields: Vec<(String, String)>,
+    meta: String,
+}
+
 struct ReviewRow {
     at: String,
     reviewer: String,
@@ -319,6 +327,7 @@ struct Detail {
     comments: Vec<CommentRow>,
     votes: Vec<VoteRow>,
     reviews: Vec<ReviewRow>,
+    summary: Summary,
 }
 
 /// Uzorak akcija prefiksa iz prozora dokaza.
@@ -413,6 +422,16 @@ async fn detail(
     .await
     .map_err(db)?;
 
+    let summary: Option<SummaryRow> = sqlx::query_as(
+        "SELECT status, output, model, prompt_version, latency_ms, error
+         FROM cohort_summary WHERE verdict_id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(db)?;
+    let summary = summary_view(summary);
+
     let cohorts = evidence["cohorts"]
         .as_array()
         .map(|cs| cs.iter().map(cohort).collect())
@@ -463,7 +482,62 @@ async fn detail(
                 note: note.unwrap_or_default(),
             })
             .collect(),
+        summary,
     })
+}
+
+/// (status, izlaz, model, verzija prompta, trajanje u ms, greška)
+type SummaryRow = (
+    String,
+    Option<Value>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+);
+
+fn summary_view(row: Option<SummaryRow>) -> Summary {
+    let empty = |state: String| Summary {
+        state,
+        fields: Vec::new(),
+        meta: String::new(),
+    };
+    let Some((status, output, model, prompt, latency, error)) = row else {
+        return empty("nema opisa (presuda je starija od opisa ili model nije podešen)".into());
+    };
+    match (status.as_str(), output) {
+        ("done", Some(out)) => {
+            let fields = [
+                ("poruka", "poruka grupe"),
+                ("stav", "stav"),
+                ("kohezija", "kohezija"),
+                ("toksicnost", "toksičnost"),
+                ("sazetak", "sažetak"),
+            ]
+            .into_iter()
+            .map(|(k, label)| (label.to_owned(), out[k].as_str().unwrap_or("").to_owned()))
+            .collect();
+            let seconds = latency.map(|ms| format!(", {:.1} s", ms as f64 / 1000.0));
+            Summary {
+                state: String::new(),
+                fields,
+                meta: format!(
+                    "model {}, prompt {}{}",
+                    model.unwrap_or_default(),
+                    prompt.unwrap_or_default(),
+                    seconds.unwrap_or_default()
+                ),
+            }
+        }
+        ("pending", _) => empty("čeka model".into()),
+        ("skipped", _) => {
+            empty("prefiks nema komentara u prozoru dokaza — nema šta da se opiše".into())
+        }
+        _ => empty(format!(
+            "opis nije uspeo: {}",
+            error.unwrap_or_else(|| "nepoznata greška".into())
+        )),
+    }
 }
 
 fn direction(dir: Option<i64>) -> String {

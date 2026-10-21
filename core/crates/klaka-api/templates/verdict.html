@@ -29,6 +29,18 @@
 </table>
 {% endif %}
 
+<h2>Opis modela <span class="muted">(savetodavno — opisuje sadržaj, ne odlučuje)</span></h2>
+{% if summary.state.is_empty() %}
+<dl>
+  {% for f in summary.fields %}
+  <dt>{{ f.0 }}</dt><dd>{{ f.1 }}</dd>
+  {% endfor %}
+</dl>
+<p class="muted">{{ summary.meta }}</p>
+{% else %}
+<p class="muted">{{ summary.state }}</p>
+{% endif %}
+
 <h2>Dokazi</h2>
 {% for c in cohorts %}
 <h3>{{ c.detector }}</h3>

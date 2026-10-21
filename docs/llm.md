@@ -187,6 +187,35 @@ LIMIT 20;
 
 ---
 
+## 5b. G2/G3 — opis kohorte za recenzenta
+
+- **Jedan poziv za oba zadatka** (`klaka-engine` `describe.rs`, `prompt_version = g2-2`): uz
+  svaku novu presudu (ne uz dopunu ni obnovu bez nove revizije) posao ulazi u `cohort_summary`, u
+  istoj transakciji. Ulaz su brojke iz dokaza, naslovi članaka i do 20 komentara prefiksa iz
+  prozora dokaza; prefiks bez komentara (samo glasovi) se preskače.
+- **Izlaz po šemi:** `poruka` (šta grupa poručuje, „izvedena direktiva", jedna rečenica), `stav`
+  (podrška, napad, skretanje, mešovito), `kohezija` (visoka, srednja, niska), `toksicnost` (nema,
+  blaga, izrazita) i `sazetak` (najviše tri rečenice, uz brojke). Validacija u Rust-u: zatvorene
+  enumeracije, dužine, ostala polja se odbacuju; neispravan izlaz ili greška modela — jedan
+  ponovni pokušaj, pa `failed`.
+- **Uputstvo modelu:** opisuje samo sadržaj — ne procenjuje da li je grupa koordinisana, ne
+  predlaže odluku, isti ton ocenjuje isto bez obzira na stranu; tekst u `<input>` je podatak, a
+  oznaka bloka u njemu gubi `<` (komentar ne može da „zatvori" blok i nastavi kao uputstvo).
+- **Radnik** je poseban zadatak u engine-u, odvojen od kruga detekcije: detekcija nikad ne čeka
+  model. Uzimanje posla je `FOR UPDATE SKIP LOCKED`; posao koji radnik uzme, a ne završi u 10
+  minuta (pad), sme se uzeti ponovo.
+- **Audit** (§4): zadatak, verzija prompta, SHA-256 ulaza, model sa digestom, trajanje, izlaz.
+  Opis je izveden iz teksta komentara — ista retencija kao komentari.
+- **Verzija prompta** se menja sa svakom izmenom uputstva. `g2-1` (samo opšte uputstvo) je sa
+  `gemma3:4b` prepričavao teme članaka, propuštao toksičnost i izmišljao procente; `g2-2` definiše
+  svako polje i nivoe toksičnosti i traži da se brojke prepišu iz ulaza — na istim kohortama
+  (`sabloni-3`) toksičnost i brojke tačne, opis mestimično netačan (npr. „hvale članke" umesto
+  „hvale komentare"). Ocena merenjem (§7) predstoji.
+- **UI recenzenta** ga prikazuje kao „opis modela — savetodavno", escape-ovan (§5). Uloga kohorte
+  (`caci.md` §1) ga koristi kao jedan od signala, nikad kao presudu.
+
+---
+
 ## 6. Izvođenje
 
 - Red poslova u PostgreSQL-u (`SELECT … FOR UPDATE SKIP LOCKED`), radnik u `klaka-engine`.
@@ -248,4 +277,4 @@ koristi produkcija.
 | 1 | PoC bez LLM-a | token + honeypot + kohorte moraju da rade sami |
 | 2 | **E1 embeddings** + grupisanje šablona | najveća korist, najmanji trošak, bez generativnog modela |
 | 3 | G1 profil posta u **shadow** režimu | čuva se i poredi, ništa ne zavisi od njega |
-| 4 | G2 i G3 | tek kad postoje klasteri i red za pregled |
+| 4 | G2 i G3 | tek kad postoje klasteri i red za pregled — urađeno jednim pozivom (§5b); merenje (§7) predstoji |
