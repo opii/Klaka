@@ -44,7 +44,29 @@ Detekcija mora da ih uhvati bez obzira na to koga guraju, potiskuju ili kome gas
 | razvodnjivač | mala relevantnost za post (embedding komentara naspram profila posta iz `post.body`), malo sadržaja, nalet baš na postu sa živom raspravom, udeo prvog ekrana koji zauzima kohorta (`seen`) |
 
 Uloga se ocenjuje na **kohorti, ne na pojedincu**: i pravi čitaoci ponekad pišu prazne ili
-grube komentare. Ocena toksičnosti i relevantnosti mora biti ista za isti ton bez obzira na
+grube komentare.
+
+**Kako je Klaka računa** (`klaka-engine` `role.rs`, pravila `u3`): uz opis kohorte, za prefiks
+presude, iz prozora dokaza i 2 minuta posle presude (kohorta tada još radi). Uloge dele prefiks
+(ista kancelarija), pa je ishod **skup uloga, svaka sa razlogom**:
+
+- **pojačivač** — glasovi „za" na tuđe komentare (≥ 3 i ≥ četvrtina glasova prefiksa), ili po
+  opisu modela bar četvrtina komentara hvali, ili je stav „podrška";
+- **ćaci** — glasovi „protiv" (uz autore na koje ciljaju), ili komentari koji napadaju **uz**
+  toksičnost, ili izrazita toksičnost;
+- **razvodnjivač** — većina komentara skreće sa teme, ili su komentari na jednom članku (≥ 80%)
+  uz skretanje ili glasove „za" komentare sopstvene kohorte (razvodnjivači glasaju jedni za
+  druge, da njihov sadržaj ostane gore).
+
+Relevantnost prema tekstu članka (embeddings) odvaja klaku od publike (0,26–0,34 prema
+0,44–0,51), ali ne uloge međusobno — opšte pohvale, uvrede i skretanje se podjednako slabo tiču
+članka — pa je razlog uz ulogu, ne pravilo. Mali model loše broji male kohorte („1 hvali, 1
+napada" uz „komentari se slažu i hvale"), pa nijedan broj sam ne pravi ćacija ni razvodnjivača.
+
+Izmereno na 9 izvođenja (72 prefiksa sa presudom, uloge iz dnevnika): tačan skup uloga 63/72;
+pojačivač 61 pogođen, 3 propuštena, 1 lažan; ćaci 28/28, 1 lažan; razvodnjivač 8 pogođenih, 4
+propuštena (manjina u `smena-4`: 2 od 8 komentara prefiksa). Pravila su podešavana na istim
+izvođenjima — mera je optimistična dok se ne proveri na novim profilima i pravim podacima. Ocena toksičnosti i relevantnosti mora biti ista za isti ton bez obzira na
 stav (koncept §5); toksičan ili prazan komentar organskog čitaoca je posao moderacije, ne Klake.
 
 Poslušnik je i najteži protivnik. Skriptu hvata token pregleda; čoveka u pravom browseru ne

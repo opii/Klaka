@@ -152,6 +152,7 @@ struct QueueRow {
     retro_votes: i64,
     decision: Option<String>,
     reviewer: Option<String>,
+    roles: Option<String>,
 }
 
 struct Row {
@@ -163,6 +164,7 @@ struct Row {
     retro_comments: i64,
     retro_votes: i64,
     status: String,
+    roles: String,
 }
 
 #[derive(Template)]
@@ -190,8 +192,11 @@ async fn queue(
                      WHERE r.verdict_id = v.id AND r.kind = 'comment') AS retro_comments,
                     (SELECT count(*) FROM verdict_retro r
                      WHERE r.verdict_id = v.id AND r.kind = 'vote') AS retro_votes,
-                    d.decision, d.reviewer
+                    d.decision, d.reviewer,
+                    (SELECT string_agg(r, ', ') FROM jsonb_array_elements_text(s.role->'uloge') r)
+                        AS roles
              FROM verdicts v
+             LEFT JOIN cohort_summary s ON s.verdict_id = v.id
              LEFT JOIN LATERAL (
                  SELECT decision, reviewer FROM verdict_review
                  WHERE verdict_id = v.id ORDER BY decided_at DESC LIMIT 1
@@ -227,6 +232,10 @@ async fn queue(
             net: r.net,
             retro_comments: r.retro_comments,
             retro_votes: r.retro_votes,
+            roles: r
+                .roles
+                .filter(|r| !r.is_empty())
+                .unwrap_or_else(|| "—".into()),
         })
         .collect();
     page(Queue {
@@ -328,6 +337,10 @@ struct Detail {
     votes: Vec<VoteRow>,
     reviews: Vec<ReviewRow>,
     summary: Summary,
+    /// Uloge kohorte i razlozi (`klaka-engine` `role.rs`); prazno dok nisu izračunate.
+    roles: Vec<String>,
+    role_reasons: Vec<String>,
+    role_known: bool,
 }
 
 /// Uzorak akcija prefiksa iz prozora dokaza.
@@ -431,6 +444,27 @@ async fn detail(
     .await
     .map_err(db)?;
     let summary = summary_view(summary);
+    let role: Option<Option<Value>> =
+        sqlx::query_scalar("SELECT role FROM cohort_summary WHERE verdict_id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    let strings = |v: &Value, k: &str| -> Vec<String> {
+        v[k].as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let role = role.flatten();
+    let role_known = role.is_some();
+    let (roles, role_reasons) = match role {
+        Some(r) => (strings(&r, "uloge"), strings(&r, "razlozi")),
+        None => (Vec::new(), Vec::new()),
+    };
 
     let cohorts = evidence["cohorts"]
         .as_array()
@@ -483,6 +517,9 @@ async fn detail(
             })
             .collect(),
         summary,
+        roles,
+        role_reasons,
+        role_known,
     })
 }
 
@@ -512,10 +549,21 @@ fn summary_view(row: Option<SummaryRow>) -> Summary {
                 ("stav", "stav"),
                 ("kohezija", "kohezija"),
                 ("toksicnost", "toksičnost"),
+                ("hvale", "komentara hvali"),
+                ("napadaju", "komentara napada"),
+                ("skrecu", "komentara skreće"),
                 ("sazetak", "sažetak"),
             ]
             .into_iter()
-            .map(|(k, label)| (label.to_owned(), out[k].as_str().unwrap_or("").to_owned()))
+            // Opis starije verzije prompta nema sva polja.
+            .filter_map(|(k, label)| {
+                let v = match &out[k] {
+                    Value::String(s) => s.clone(),
+                    Value::Number(n) => n.to_string(),
+                    _ => return None,
+                };
+                Some((label.to_owned(), v))
+            })
             .collect();
             let seconds = latency.map(|ms| format!(", {:.1} s", ms as f64 / 1000.0));
             Summary {

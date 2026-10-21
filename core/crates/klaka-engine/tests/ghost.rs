@@ -918,7 +918,8 @@ async fn cohort_is_described_and_bad_output_is_retried_then_failed() {
     };
     let good = FakeLlm {
         reply: json!({"poruka": "Hvale iste komentare.", "stav": "podrška", "kohezija": "visoka",
-                      "toksicnost": "nema", "sazetak": "Dva šablonska komentara na jednom članku.",
+                      "toksicnost": "nema", "hvale": 2, "napadaju": 0, "skrecu": 0,
+                      "sazetak": "Dva šablonska komentara na jednom članku.",
                       "visak": 1}),
         seen: Default::default(),
     };
@@ -929,7 +930,7 @@ async fn cohort_is_described_and_bad_output_is_retried_then_failed() {
     )
     .await;
     assert_eq!(
-        describe_next(&pool, &good).await.unwrap(),
+        describe_next(&pool, &good, Duration::ZERO).await.unwrap(),
         Some((id, Outcome::Done))
     );
     let seen = good.seen.lock().unwrap().clone();
@@ -954,8 +955,15 @@ async fn cohort_is_described_and_bad_output_is_retried_then_failed() {
         output.get("visak").is_none() && output["stav"] == "podrška",
         "{output}"
     );
+    let role: serde_json::Value =
+        sqlx::query_scalar("SELECT role FROM cohort_summary WHERE verdict_id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(role["uloge"], json!(["pojačivač"]), "{role}");
     assert_eq!(
-        describe_next(&pool, &good).await.unwrap(),
+        describe_next(&pool, &good, Duration::ZERO).await.unwrap(),
         None,
         "nema više posla"
     );
@@ -968,20 +976,27 @@ async fn cohort_is_described_and_bad_output_is_retried_then_failed() {
     };
     let id = described_verdict(&pool, "198.18.71.0/24", &[("p-1", "Sramota.")]).await;
     assert!(matches!(
-        describe_next(&pool, &bad).await.unwrap(),
+        describe_next(&pool, &bad, Duration::ZERO).await.unwrap(),
         Some((i, Outcome::Retry(_))) if i == id
     ));
     assert!(matches!(
-        describe_next(&pool, &bad).await.unwrap(),
+        describe_next(&pool, &bad, Duration::ZERO).await.unwrap(),
         Some((i, Outcome::Failed(e))) if i == id && e.contains("stav")
     ));
 
     // Prefiks bez komentara (samo glasovi): nema šta da se opiše.
     let id = described_verdict(&pool, "198.18.72.0/24", &[]).await;
     assert_eq!(
-        describe_next(&pool, &good).await.unwrap(),
+        describe_next(&pool, &good, Duration::ZERO).await.unwrap(),
         Some((id, Outcome::Skipped))
     );
+    let role: serde_json::Value =
+        sqlx::query_scalar("SELECT role FROM cohort_summary WHERE verdict_id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(role["uloge"], json!([]), "{role}");
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))

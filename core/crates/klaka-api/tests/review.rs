@@ -196,16 +196,24 @@ async fn reviewer_sees_evidence_and_rejection_stops_the_verdict() {
     // Opis modela je izveden iz neproverenog teksta: i on se escape-uje.
     sqlx::query(
         "INSERT INTO cohort_summary (verdict_id, status, output, model, prompt_version, latency_ms)
-         VALUES ($1, 'done', $2, 'gemma3:4b@a2af6cc3eb7f', 'g2-1', 41200)",
+         VALUES ($1, 'done', $2, 'gemma3:4b@a2af6cc3eb7f', 'g2-2', 41200)",
     )
     .bind(id)
     .bind(
         json!({"poruka": "Hvale <b>iste</b> komentare.", "stav": "podrška", "kohezija": "visoka",
-                 "toksicnost": "nema", "sazetak": "Šest šablonskih komentara na tri članka."}),
+                 "toksicnost": "nema", "hvale": 6, "napadaju": 0, "skrecu": 0,
+                 "sazetak": "Šest šablonskih komentara na tri članka."}),
     )
     .execute(&pool)
     .await
     .unwrap();
+    sqlx::query("UPDATE cohort_summary SET role = $2 WHERE verdict_id = $1")
+        .bind(id)
+        .bind(json!({"uloge": ["pojačivač", "ćaci"],
+                     "razlozi": ["pojačivač: stav komentara: mešovito", "ćaci: toksičnost komentara: blaga"]}))
+        .execute(&pool)
+        .await
+        .unwrap();
     let ui = || app(pool.clone(), valkey.clone());
 
     let (status, _, body) = call(ui(), get("/")).await;
@@ -215,6 +223,7 @@ async fn reviewer_sees_evidence_and_rejection_stops_the_verdict() {
         "{body}"
     );
     assert!(body.contains("1 kom. · 0 gl."), "{body}");
+    assert!(body.contains("<td>pojačivač, ćaci</td>"), "{body}");
 
     let (status, _, body) = call(ui(), get(&format!("/presude/{id}"))).await;
     assert_eq!(status, StatusCode::OK);
@@ -236,9 +245,14 @@ async fn reviewer_sees_evidence_and_rejection_stops_the_verdict() {
     );
     assert!(body.contains("važi: shadow"), "{body}");
     assert!(
+        body.contains("nikad za presudu") && body.contains("ćaci: toksičnost komentara: blaga"),
+        "{body}"
+    );
+    assert!(
         body.contains("Hvale &#60;b&#62;iste&#60;/b&#62; komentare.")
             && body.contains("toksičnost")
-            && body.contains("prompt g2-1, 41.2 s"),
+            && body.contains("<dt>komentara hvali</dt><dd>6</dd>")
+            && body.contains("prompt g2-2, 41.2 s"),
         "{body}"
     );
 

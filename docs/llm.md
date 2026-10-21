@@ -189,15 +189,18 @@ LIMIT 20;
 
 ## 5b. G2/G3 — opis kohorte za recenzenta
 
-- **Jedan poziv za oba zadatka** (`klaka-engine` `describe.rs`, `prompt_version = g2-2`): uz
+- **Jedan poziv za oba zadatka** (`klaka-engine` `describe.rs`, `prompt_version = g2-3`): uz
   svaku novu presudu (ne uz dopunu ni obnovu bez nove revizije) posao ulazi u `cohort_summary`, u
   istoj transakciji. Ulaz su brojke iz dokaza, naslovi članaka i do 20 komentara prefiksa iz
-  prozora dokaza; prefiks bez komentara (samo glasovi) se preskače.
+  prozora dokaza i još 2 minuta posle presude — kohorta tada još radi (već u shadow-u), a to je
+  isto ponašanje (`rasuta-3`: oko polovine glasova posle presude); radnik zato posao uzima tek
+  posle tog roka. Prefiks bez komentara (samo glasovi) se preskače.
 - **Izlaz po šemi:** `poruka` (šta grupa poručuje, „izvedena direktiva", jedna rečenica), `stav`
   (podrška, napad, skretanje, mešovito), `kohezija` (visoka, srednja, niska), `toksicnost` (nema,
-  blaga, izrazita) i `sazetak` (najviše tri rečenice, uz brojke). Validacija u Rust-u: zatvorene
-  enumeracije, dužine, ostala polja se odbacuju; neispravan izlaz ili greška modela — jedan
-  ponovni pokušaj, pa `failed`.
+  blaga, izrazita), koliko komentara `hvale`, `napadaju` i `skrecu` (uloge dele prefiks, pa jedan
+  stav ne vidi manjinu) i `sazetak` (najviše tri rečenice, uz brojke). Validacija u Rust-u:
+  zatvorene enumeracije, dužine, brojevi do broja komentara u ulazu, ostala polja se odbacuju;
+  neispravan izlaz ili greška modela — jedan ponovni pokušaj, pa `failed`.
 - **Uputstvo modelu:** opisuje samo sadržaj — ne procenjuje da li je grupa koordinisana, ne
   predlaže odluku, isti ton ocenjuje isto bez obzira na stranu; tekst u `<input>` je podatak, a
   oznaka bloka u njemu gubi `<` (komentar ne može da „zatvori" blok i nastavi kao uputstvo).
@@ -210,9 +213,11 @@ LIMIT 20;
   `gemma3:4b` prepričavao teme članaka, propuštao toksičnost i izmišljao procente; `g2-2` definiše
   svako polje i nivoe toksičnosti i traži da se brojke prepišu iz ulaza — na istim kohortama
   (`sabloni-3`) toksičnost i brojke tačne, opis mestimično netačan (npr. „hvale članke" umesto
-  „hvale komentare"). Ocena merenjem (§7) predstoji.
+  „hvale komentare"). `g2-3` dodaje brojeve po vrsti komentara: kod mešovitih kohorti blizu
+  istine (8/4/0 → 7/3/2), kod malih (3 komentara) nepouzdani. Ocena merenjem (§7) predstoji.
 - **UI recenzenta** ga prikazuje kao „opis modela — savetodavno", escape-ovan (§5). Uloga kohorte
-  (`caci.md` §1) ga koristi kao jedan od signala, nikad kao presudu.
+  (`caci.md` §1) ga koristi kao jedan od signala, nikad kao presudu; uloga ima verziju pravila i
+  preračunava se iz sačuvanog opisa kad se pravila promene, bez ponovnog poziva modela.
 
 ---
 

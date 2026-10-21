@@ -26,6 +26,7 @@
 pub mod comments;
 pub mod coordinated;
 pub mod describe;
+pub mod role;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;

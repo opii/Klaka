@@ -17,7 +17,7 @@
 <div class="scroll">
 <table>
   <thead>
-    <tr><th>Presuda (UTC)</th><th>Portal</th><th>Prefiks</th><th>Detektori</th>
+    <tr><th>Presuda (UTC)</th><th>Portal</th><th>Prefiks</th><th>Detektori</th><th>Uloga</th>
         <th>Naknadno skinuto</th><th>Pregled</th></tr>
   </thead>
   <tbody>
@@ -27,6 +27,7 @@
       <td>{{ r.portal }}</td>
       <td><code>{{ r.net }}</code></td>
       <td>{{ r.detectors }}</td>
+      <td>{{ r.roles }}</td>
       <td class="n">{{ r.retro_comments }} kom. · {{ r.retro_votes }} gl.</td>
       <td>{{ r.status }}</td>
     </tr>

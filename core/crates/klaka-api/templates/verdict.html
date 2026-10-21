@@ -29,6 +29,18 @@
 </table>
 {% endif %}
 
+<h2>Uloga kohorte <span class="muted">(za recenzenta i izveštaj — nikad za presudu)</span></h2>
+{% if roles.is_empty() %}
+<p class="muted">{% if role_known %}bez jasnog signala uloge{% else %}nije izračunata (računa se posle opisa modela){% endif %}</p>
+{% else %}
+<p>{% for r in roles %}<span class="tag">{{ r }}</span> {% endfor %}</p>
+{% endif %}
+{% if !role_reasons.is_empty() %}
+<ul>
+  {% for r in role_reasons %}<li>{{ r }}</li>{% endfor %}
+</ul>
+{% endif %}
+
 <h2>Opis modela <span class="muted">(savetodavno — opisuje sadržaj, ne odlučuje)</span></h2>
 {% if summary.state.is_empty() %}
 <dl>

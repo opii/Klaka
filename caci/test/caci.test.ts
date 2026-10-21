@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import { Prefixes } from "../src/net.js";
 import { parseProfile, schedule } from "../src/profile.js";
-import { match, summarize, summarizeComments, threads, type StoredComment, type StoredVote } from "../src/report.js";
+import { formatVerdicts, match, summarize, summarizeComments, threads, type StoredComment, type StoredVote } from "../src/report.js";
 import { operativePlan, type Action, type CommentAction, type RunLog } from "../src/run.js";
 import { clean, lines, templated, TEMPLATES } from "../src/texts.js";
 
@@ -174,4 +174,12 @@ test("komentari publike: po jedan u redu, bez numeracije i navodnika, bez ponavl
 test("komentari publike: uvod modela nije komentar", () => {
   const r = { response: "Evo šest komentara čitalaca ispod članka:\n\n1. Konačno, čekamo ovo godinama." };
   assert.deepEqual(lines(r), ["Konačno, čekamo ovo godinama."]);
+});
+
+test("presude: uloga kohorte uz presudu, kad je izračunata", () => {
+  const log = { started_ms: 0, actions: [action({ net: "198.18.1.0/24" })], comments: [] } as unknown as RunLog;
+  const v = { net: "198.18.1.0/24", rev: 1, created_ms: 30_000, detector: "focused-votes" };
+  assert.match(formatVerdicts(log, [{ ...v, roles: ["pojačivač", "ćaci"] }]), /\+30 s {2}198\.18\.1\.0\/24 {2}\[focused-votes\].* · uloga: pojačivač, ćaci$/);
+  assert.match(formatVerdicts(log, [{ ...v, roles: [] }]), /· uloga: —$/);
+  assert.doesNotMatch(formatVerdicts(log, [v]), /uloga/, "čeka opis modela");
 });

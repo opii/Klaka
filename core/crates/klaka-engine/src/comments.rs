@@ -753,7 +753,7 @@ pub async fn purge_embeddings(pool: &PgPool, retention_days: i32) -> Result<u64,
 }
 
 /// Tekstualni oblik vektora za pgvector: `[0.1,-0.2,…]`.
-fn vector_literal(v: &[f32]) -> String {
+pub(crate) fn vector_literal(v: &[f32]) -> String {
     let parts: Vec<String> = v.iter().map(f32::to_string).collect();
     format!("[{}]", parts.join(","))
 }

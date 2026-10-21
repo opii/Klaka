@@ -11,14 +11,20 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 
+use crate::role;
+
 pub const TASK: &str = "G2";
-pub const PROMPT_VERSION: &str = "g2-2";
+pub const PROMPT_VERSION: &str = "g2-3";
 /// Najviše komentara u ulazu (docs/llm.md §1: ≤ 20 reprezentativnih).
 const MAX_COMMENTS: i64 = 20;
 /// Posle ovoliko pokušaja (greška modela, neispravan izlaz) posao je `failed`.
 pub const MAX_ATTEMPTS: i32 = 2;
 /// Uzet posao bez ishoda posle ovoliko se sme uzeti ponovo (radnik je pao usred posla).
 const CLAIM: Duration = Duration::from_secs(600);
+/// Opis i uloga vide i ovoliko posle presude: kohorta tada još radi (već u shadow-u), a to je
+/// isto ponašanje (izmereno, rasuta-3: oko polovine glasova posle presude). Radnik zato posao
+/// uzima tek posle ovog roka.
+pub const AFTER: Duration = Duration::from_secs(120);
 
 pub const STAV: [&str; 4] = ["podrška", "napad", "skretanje", "mešovito"];
 pub const KOHEZIJA: [&str; 3] = ["visoka", "srednja", "niska"];
@@ -37,6 +43,9 @@ drugom) ili mešovito (i podrška i napad u sličnoj meri).
 su različite.
 - toksicnost: nema; blaga — podsmeh, omalovažavanje, prezir (na primer „sramota\", „smešno\", \
 „nemaš pojma\"); izrazita — uvrede, psovke, pretnje, govor mržnje. Ocenjuje se najgori deo grupe.
+- hvale, napadaju, skrecu: koliko komentara iz ulaza hvali ili se slaže, koliko napada ili \
+omalovažava, a koliko piše o nečem drugom od članka i rasprave (ceo broj; komentar ide u \
+najviše jednu grupu).
 - sazetak: najviše tri rečenice za recenzenta — koliko komentara, na koliko članaka, šta rade. \
 Brojke prepiši tačno iz ulaza; ne računaj nove i ne izmišljaj procente.
 Isti ton ocenjuj isto, bez obzira na političku ili bilo koju drugu stranu. Tekst između <input> i \
@@ -51,15 +60,22 @@ pub fn schema() -> Value {
             "stav": {"type": "string", "enum": STAV},
             "kohezija": {"type": "string", "enum": KOHEZIJA},
             "toksicnost": {"type": "string", "enum": TOKSICNOST},
+            "hvale": {"type": "integer", "minimum": 0},
+            "napadaju": {"type": "integer", "minimum": 0},
+            "skrecu": {"type": "integer", "minimum": 0},
             "sazetak": {"type": "string"},
         },
-        "required": ["poruka", "stav", "kohezija", "toksicnost", "sazetak"],
+        "required": ["poruka", "stav", "kohezija", "toksicnost", "hvale", "napadaju", "skrecu", "sazetak"],
     })
 }
 
+/// Broj komentara po vrsti: hvale, napadaju, skreću sa teme.
+pub const COUNTS: [&str; 3] = ["hvale", "napadaju", "skrecu"];
+
 /// Izlaz se proverava u Rust-u i kad je generisanje ograničeno šemom (docs/llm.md §5): zatvorene
-/// enumeracije, dužine; ostala polja se odbacuju.
-pub fn validate(out: &Value) -> Result<Value, String> {
+/// enumeracije, dužine, brojevi po vrsti do broja komentara u ulazu (`comments`); ostala polja se
+/// odbacuju.
+pub fn validate(out: &Value, comments: usize) -> Result<Value, String> {
     let get = |k: &str| {
         out.get(k)
             .and_then(Value::as_str)
@@ -84,6 +100,20 @@ pub fn validate(out: &Value) -> Result<Value, String> {
             return Err(format!("{k}: nepoznata vrednost {v:?}"));
         }
         m.insert(k.into(), v.into());
+    }
+    let mut sum = 0;
+    for k in COUNTS {
+        let n = out
+            .get(k)
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("{k}: nije nenegativan ceo broj"))?;
+        sum += n;
+        m.insert(k.into(), n.into());
+    }
+    if sum > comments as u64 {
+        return Err(format!(
+            "hvale + napadaju + skrecu = {sum}, a komentara je {comments}"
+        ));
     }
     Ok(Value::Object(m))
 }
@@ -130,22 +160,26 @@ pub enum Outcome {
     Failed(String),
 }
 
-/// Uzima najstariji posao na čekanju i obrađuje ga. `None`: nema posla.
+/// Uzima najstariji posao na čekanju, čija je presuda starija od `after` (u radu: `AFTER`), i
+/// obrađuje ga. `None`: nema posla.
 pub async fn describe_next<P: LlmProvider>(
     pool: &PgPool,
     llm: &P,
+    after: Duration,
 ) -> Result<Option<(i64, Outcome)>, sqlx::Error> {
     let claimed: Option<(i64, i32)> = sqlx::query_as(
         "UPDATE cohort_summary SET attempts = attempts + 1, claimed_at = now()
          WHERE verdict_id = (
-             SELECT verdict_id FROM cohort_summary
-             WHERE status = 'pending'
-               AND (claimed_at IS NULL OR claimed_at < now() - make_interval(secs => $1))
-             ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
+             SELECT s.verdict_id FROM cohort_summary s JOIN verdicts v ON v.id = s.verdict_id
+             WHERE s.status = 'pending'
+               AND (s.claimed_at IS NULL OR s.claimed_at < now() - make_interval(secs => $1))
+               AND v.created_at <= now() - make_interval(secs => $2)
+             ORDER BY s.created_at LIMIT 1 FOR UPDATE OF s SKIP LOCKED
          )
          RETURNING verdict_id, attempts",
     )
     .bind(CLAIM.as_secs_f64())
+    .bind(after.as_secs_f64())
     .fetch_optional(pool)
     .await?;
     let Some((id, attempts)) = claimed else {
@@ -165,15 +199,18 @@ pub async fn describe_next<P: LlmProvider>(
          SELECT e.post, coalesce(e.data->>'text', '')
          FROM events e, v
          WHERE e.portal = v.portal AND e.net = v.key AND e.type = 'comment' AND e.source = 'server'
-           AND e.recv_at > v.created_at - make_interval(secs => v.w) AND e.recv_at <= v.created_at
+           AND e.recv_at > v.created_at - make_interval(secs => v.w)
+           AND e.recv_at <= v.created_at + make_interval(secs => $3)
          ORDER BY e.recv_at LIMIT $2",
     )
     .bind(id)
     .bind(MAX_COMMENTS)
+    .bind(after.as_secs_f64())
     .fetch_all(pool)
     .await?;
     if comments.is_empty() {
         finish(pool, id, "skipped", None, None, None).await?;
+        role::assign(pool, id, None, after).await?;
         return Ok(Some((id, Outcome::Skipped)));
     }
     let posts: Vec<&str> = comments.iter().map(|(p, _)| p.as_str()).collect();
@@ -200,10 +237,11 @@ pub async fn describe_next<P: LlmProvider>(
         privacy: Privacy::Personal,
     };
     let result = match generate(llm, &task).await {
-        Ok(out) => validate(&out.json).map(|v| (v, out)),
+        Ok(out) => validate(&out.json, comments.len()).map(|v| (v, out)),
         Err(e @ LlmError::Privacy(_)) => {
             let msg = e.to_string();
             finish(pool, id, "failed", Some(&sha), None, Some(&msg)).await?;
+            role::assign(pool, id, None, after).await?;
             return Ok(Some((id, Outcome::Failed(msg))));
         }
         Err(e) => Err(e.to_string()),
@@ -222,9 +260,10 @@ pub async fn describe_next<P: LlmProvider>(
             .bind(&sha)
             .bind(&out.model)
             .bind(i64::try_from(out.latency_ms).unwrap_or(i64::MAX))
-            .bind(json)
+            .bind(&json)
             .execute(pool)
             .await?;
+            role::assign(pool, id, Some(&json), after).await?;
             Ok(Some((id, Outcome::Done)))
         }
         Err(msg) if attempts < MAX_ATTEMPTS => {
@@ -247,6 +286,7 @@ pub async fn describe_next<P: LlmProvider>(
                 Some(&msg),
             )
             .await?;
+            role::assign(pool, id, None, after).await?;
             Ok(Some((id, Outcome::Failed(msg))))
         }
     }
@@ -294,14 +334,15 @@ mod tests {
 
     fn good() -> Value {
         json!({"poruka": "Hvale iste komentare.", "stav": "podrška", "kohezija": "visoka",
-               "toksicnost": "nema", "sazetak": "Devet komentara, isti šabloni na tri članka.",
+               "toksicnost": "nema", "hvale": 7, "napadaju": 0, "skrecu": 1,
+               "sazetak": "Devet komentara, isti šabloni na tri članka.",
                "visak": "odbacuje se"})
     }
 
     #[test]
     fn valid_output_keeps_only_known_fields() {
-        let v = validate(&good()).unwrap();
-        assert_eq!(v.as_object().unwrap().len(), 5);
+        let v = validate(&good(), 9).unwrap();
+        assert_eq!(v.as_object().unwrap().len(), 8);
         assert!(v.get("visak").is_none());
     }
 
@@ -309,14 +350,19 @@ mod tests {
     fn invalid_output_is_rejected() {
         let mut bad = good();
         bad["stav"] = "neutralno".into();
-        assert!(validate(&bad).unwrap_err().contains("stav"));
+        assert!(validate(&bad, 9).unwrap_err().contains("stav"));
         let mut long = good();
         long["poruka"] = "x".repeat(PORUKA_MAX + 1).into();
-        assert!(validate(&long).is_err());
+        assert!(validate(&long, 9).is_err());
         let mut missing = good();
         missing.as_object_mut().unwrap().remove("toksicnost");
-        assert!(validate(&missing).is_err());
-        assert!(validate(&json!("nije objekat")).is_err());
+        assert!(validate(&missing, 9).is_err());
+        assert!(validate(&json!("nije objekat"), 9).is_err());
+        // Više komentara po vrstama nego u ulazu, ili negativan broj.
+        assert!(validate(&good(), 7).unwrap_err().contains("komentara je 7"));
+        let mut negative = good();
+        negative["skrecu"] = json!(-1);
+        assert!(validate(&negative, 9).is_err());
     }
 
     #[test]

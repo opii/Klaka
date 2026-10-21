@@ -36,7 +36,8 @@ use klaka_engine::comments::{
     template_cohorts, unwritten_cohorts,
 };
 use klaka_engine::coordinated::{COORDINATED_VOTES, coordinated_cohorts, nets};
-use klaka_engine::describe::{Outcome, describe_next, purge_summaries};
+use klaka_engine::describe::{AFTER, Outcome, describe_next, purge_summaries};
+use klaka_engine::role::{embed_posts, refresh};
 use klaka_engine::{
     Config, FOCUSED_VOTES, Finding, GHOST_VIEWS, NetVerdict, UNREAD_VOTES, detectors,
     focused_cohorts, ghost_cohorts, group_by_net, issue_net_shadow, unread_cohorts,
@@ -132,6 +133,10 @@ async fn main() {
                 if let Err(err) = embed_pending(&pool, e, &cfg, EMBED_BATCH).await {
                     warn_once(&mut embed_error, format!("embeddings: {err}"));
                 }
+                // Članci sa komentarima u prozoru: relevantnost za ulogu kohorte.
+                if let Err(err) = embed_posts(&pool, e, &cfg).await {
+                    warn_once(&mut embed_error, format!("embeddings članaka: {err}"));
+                }
             }
         }
         if let Err(e) = purge_embeddings(&pool, retention_days).await {
@@ -216,6 +221,8 @@ const EMBED_BATCH: i64 = 32;
 const DESCRIBE_TIMEOUT: Duration = Duration::from_secs(300);
 const DESCRIBE_IDLE: Duration = Duration::from_secs(5);
 const DESCRIBE_RETRY: Duration = Duration::from_secs(30);
+/// Uloga se preračunava najviše za ovoliko kohorti po krugu bez posla.
+const ROLE_REFRESH: i64 = 50;
 
 /// Opisi kohorti (G2/G3), jedan po jedan, odvojeno od kruga detekcije: detekcija nikad ne čeka
 /// model. Bez modela (preuzimanje još traje) pokušava ponovo.
@@ -233,7 +240,7 @@ async fn describe_worker(pool: PgPool, url: String, model: String) {
         klaka_llm::LlmProvider::model(&llm)
     );
     loop {
-        match describe_next(&pool, &llm).await {
+        match describe_next(&pool, &llm, AFTER).await {
             Ok(Some((id, outcome))) => {
                 error = None;
                 match outcome {
@@ -247,7 +254,13 @@ async fn describe_worker(pool: PgPool, url: String, model: String) {
                     }
                 }
             }
-            Ok(None) => tokio::time::sleep(DESCRIBE_IDLE).await,
+            Ok(None) => {
+                // Bez posla: uloge starije verzije pravila, iz sačuvanih opisa.
+                if let Err(e) = refresh(&pool, AFTER, ROLE_REFRESH).await {
+                    warn_once(&mut error, format!("uloga kohorte: baza: {e}"));
+                }
+                tokio::time::sleep(DESCRIBE_IDLE).await
+            }
             Err(e) => {
                 warn_once(&mut error, format!("opis kohorte: baza: {e}"));
                 tokio::time::sleep(DESCRIBE_RETRY).await;

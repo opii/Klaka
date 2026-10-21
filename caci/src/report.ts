@@ -248,6 +248,8 @@ export interface StoredVerdict {
   created_ms: number;
   /** Detektori čiji su nalazi u presudi, npr. `focused-votes+shared-templates`. */
   detector: string;
+  /** Uloga kohorte (engine `role.rs`), kad je izračunata — posle opisa modela. */
+  roles?: string[];
 }
 
 /** Presude engine-a za prefikse ovog izvođenja: koga su pogodile i kada. */
@@ -269,7 +271,8 @@ export function formatVerdicts(log: RunLog, verdicts: StoredVerdict[]): string {
     const dt = Math.round((v.created_ms - log.started_ms) / 1000);
     // Negativno: presuda iz ranijeg izvođenja koja još važi za prefiks ovog.
     const when = dt >= 0 ? `+${dt} s` : `${dt} s (pre početka!)`;
-    lines.push(`  ${when}  ${v.net}  [${v.detector}]  ←  ${who}`);
+    const role = v.roles === undefined ? "" : `  · uloga: ${v.roles.join(", ") || "—"}`;
+    lines.push(`  ${when}  ${v.net}  [${v.detector}]  ←  ${who}${role}`);
   }
   return lines.join("\n");
 }
@@ -278,13 +281,25 @@ export async function loadVerdicts(url: string, log: RunLog): Promise<StoredVerd
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
-    const res = await client.query<{ key: string; rev: number; created_ms: string; detector: string }>(
-      `SELECT key, rev, (extract(epoch FROM created_at) * 1000)::bigint AS created_ms, detector
-       FROM verdicts
-       WHERE portal = $1 AND key_kind = 'net' AND until_ms >= $2`,
+    // Samo presude (`shadow`): `none` su odluke recenzenta (verdicts.md §6).
+    const res = await client.query<{
+      key: string; rev: number; created_ms: string; detector: string; roles: string[] | null;
+    }>(
+      `SELECT v.key, v.rev, (extract(epoch FROM v.created_at) * 1000)::bigint AS created_ms, v.detector,
+              s.role->'uloge' AS roles
+       FROM verdicts v LEFT JOIN cohort_summary s ON s.verdict_id = v.id
+       WHERE v.portal = $1 AND v.key_kind = 'net' AND v.action = 'shadow' AND v.until_ms >= $2`,
       [log.portal, log.started_ms],
-    );
-    return res.rows.map((r) => ({ net: r.key, rev: r.rev, created_ms: Number(r.created_ms), detector: r.detector }));
+    ).catch(() =>
+      // Baza pre migracije 0009 (bez uloge kohorte).
+      client.query<{ key: string; rev: number; created_ms: string; detector: string; roles: null }>(
+        `SELECT key, rev, (extract(epoch FROM created_at) * 1000)::bigint AS created_ms, detector, NULL AS roles
+         FROM verdicts WHERE portal = $1 AND key_kind = 'net' AND action = 'shadow' AND until_ms >= $2`,
+        [log.portal, log.started_ms],
+      ));
+    return res.rows.map((r) => ({
+      net: r.key, rev: r.rev, created_ms: Number(r.created_ms), detector: r.detector, ...(r.roles ? { roles: r.roles } : {}),
+    }));
   } catch {
     return []; // engine još nije napravio tabelu
   } finally {
