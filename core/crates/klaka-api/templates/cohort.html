@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Kohorta {{ id }}{% endblock %}
+{% block content %}
+<p><a href="/">← red za pregled</a></p>
+<h2>Kohorta #{{ id }} na {{ portal }}: {{ nets }} prefiksa, {{ members.len() }} presuda</h2>
+<p class="muted">
+  Prefiksi iz iste komponente grafa (usklađeni glasovi ili šabloni), i kroz krugove. Odluka važi za
+  svaku presudu kohorte; odbacivanje zaustavlja presude svih prefiksa koje još važe.
+  {% if open > 0 %}Bez odluke: {{ open }}.{% endif %}
+</p>
+
+<form class="decide" method="post" action="/kohorte/{{ id }}/odluka">
+  <input type="text" name="note" maxlength="500" placeholder="napomena (nije obavezna)">
+  <button name="decision" value="confirm">Potvrdi kohortu</button>
+  <button name="decision" value="reject">Odbaci kohortu</button>
+</form>
+
+<h2>Opis modela <span class="muted">(zajednički za kohortu; savetodavno — ne odlučuje)</span></h2>
+{% if summary.state.is_empty() %}
+<dl>
+  {% for f in summary.fields %}
+  <dt>{{ f.0 }}</dt><dd>{{ f.1 }}</dd>
+  {% endfor %}
+</dl>
+<p class="muted">{{ summary.meta }}</p>
+{% else %}
+<p class="muted">{{ summary.state }}</p>
+{% endif %}
+
+<h2>Presude kohorte</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Presuda (UTC)</th><th>Prefiks</th><th>Detektori</th><th>Uloga</th><th>Naknadno skinuto</th><th>Pregled</th></tr></thead>
+  <tbody>
+  {% for m in members %}
+    <tr>
+      <td><a href="{{ m.href }}">{{ m.created }}</a></td>
+      <td><code>{{ m.label }}</code></td>
+      <td>{{ m.detectors }}</td>
+      <td>{{ m.roles }}</td>
+      <td class="n">{{ m.retro_comments }} kom. · {{ m.retro_votes }} gl.</td>
+      <td>{{ m.status }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

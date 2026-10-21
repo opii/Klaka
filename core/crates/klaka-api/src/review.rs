@@ -6,6 +6,7 @@
 //! podatke poslao i sa tuđe stranice). Bez JavaScript-a: CSP zabranjuje skripte, a askama
 //! escape-uje sve što dolazi od korisnika portala (tekst komentara, pseudonim).
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,6 +37,8 @@ pub fn router(review: Review) -> Router {
         .route("/", get(queue))
         .route("/presude/{id}", get(detail))
         .route("/presude/{id}/odluka", post(decide))
+        .route("/kohorte/{id}", get(cohort_page))
+        .route("/kohorte/{id}/odluka", post(decide_cohort))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
 }
@@ -153,18 +156,23 @@ struct QueueRow {
     decision: Option<String>,
     reviewer: Option<String>,
     roles: Option<String>,
+    cohort: Option<i64>,
 }
 
+/// Jedinica pregleda: kohorta iz grafa (sve njene presude) ili pojedinačna presuda.
 struct Row {
-    id: i64,
+    href: String,
     created: String,
     portal: String,
-    net: String,
+    /// Prefiks, ili „kohorta #c: n prefiksa".
+    label: String,
     detectors: String,
     retro_comments: i64,
     retro_votes: i64,
     status: String,
     roles: String,
+    /// Bar jedna presuda jedinice još nema odluku.
+    open: bool,
 }
 
 #[derive(Template)]
@@ -178,41 +186,66 @@ struct Queue {
     precision: String,
 }
 
+/// Presude (bez odluka recenzenta, `none`), sa poslednjom odlukom i ulogom.
+const VERDICT_ROWS: &str =
+    "SELECT v.id, to_char(v.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS created,
+            v.portal, v.key AS net, v.detector,
+            (SELECT count(*) FROM verdict_retro r
+             WHERE r.verdict_id = v.id AND r.kind = 'comment') AS retro_comments,
+            (SELECT count(*) FROM verdict_retro r
+             WHERE r.verdict_id = v.id AND r.kind = 'vote') AS retro_votes,
+            d.decision, d.reviewer,
+            (SELECT string_agg(r, ', ') FROM jsonb_array_elements_text(s.role->'uloge') r)
+                AS roles,
+            v.cohort
+     FROM verdicts v
+     LEFT JOIN cohort_summary s ON s.verdict_id = v.id
+     LEFT JOIN LATERAL (
+         SELECT decision, reviewer FROM verdict_review
+         WHERE verdict_id = v.id ORDER BY decided_at DESC LIMIT 1
+     ) d ON true
+     WHERE v.action = 'shadow'";
+
+/// Najviše jedinica u redu; presuda koje se gledaju da bi se sklopile.
+const QUEUE_UNITS: usize = 200;
+const QUEUE_VERDICTS: i64 = 2_000;
+
 async fn queue(
     State(review): State<Arc<Review>>,
     Extension(Reviewer(reviewer)): Extension<Reviewer>,
     Query(q): Query<QueueQuery>,
 ) -> Result<Response, Failure> {
     let all = q.sve.is_some();
-    // Nepregledane prvo; presude `none` su odluke recenzenta, ne stavke reda.
-    let rows: Vec<QueueRow> = sqlx::query_as(
-        "SELECT v.id, to_char(v.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS created,
-                    v.portal, v.key AS net, v.detector,
-                    (SELECT count(*) FROM verdict_retro r
-                     WHERE r.verdict_id = v.id AND r.kind = 'comment') AS retro_comments,
-                    (SELECT count(*) FROM verdict_retro r
-                     WHERE r.verdict_id = v.id AND r.kind = 'vote') AS retro_votes,
-                    d.decision, d.reviewer,
-                    (SELECT string_agg(r, ', ') FROM jsonb_array_elements_text(s.role->'uloge') r)
-                        AS roles
-             FROM verdicts v
-             LEFT JOIN cohort_summary s ON s.verdict_id = v.id
-             LEFT JOIN LATERAL (
-                 SELECT decision, reviewer FROM verdict_review
-                 WHERE verdict_id = v.id ORDER BY decided_at DESC LIMIT 1
-             ) d ON true
-             WHERE v.action = 'shadow' AND ($1 OR d.decision IS NULL)
-             ORDER BY d.decision IS NULL DESC, v.created_at DESC
-             LIMIT 200",
-    )
-    .bind(all)
+    let rows: Vec<QueueRow> = sqlx::query_as(&format!(
+        "{VERDICT_ROWS} ORDER BY v.created_at DESC LIMIT $1"
+    ))
+    .bind(QUEUE_VERDICTS)
     .fetch_all(&review.pool)
     .await
     .map_err(db)?;
+    // Kohorta iz grafa je jedna stavka: recenzent odlučuje o njoj, ne o 16 prefiksa posebno.
+    let mut units: Vec<Row> = Vec::new();
+    let mut cohorts: BTreeMap<i64, Vec<QueueRow>> = BTreeMap::new();
+    for r in rows {
+        match r.cohort {
+            Some(c) => cohorts.entry(c).or_default().push(r),
+            None => units.push(single(r)),
+        }
+    }
+    units.extend(cohorts.into_iter().map(|(c, m)| cohort_row(c, &m)));
+    units.retain(|u| all || u.open);
+    // Nepregledane prvo, pa novije.
+    units.sort_by(|a, b| b.open.cmp(&a.open).then_with(|| b.created.cmp(&a.created)));
+    units.truncate(QUEUE_UNITS);
+
+    // Preciznost reda po jedinici (koncept §11: udeo prijavljenih kohorti koje recenzent potvrdi).
     let (confirmed, rejected): (i64, i64) = sqlx::query_as(
         "SELECT count(*) FILTER (WHERE decision = 'confirm'), count(*) FILTER (WHERE decision = 'reject')
-         FROM (SELECT DISTINCT ON (verdict_id) decision FROM verdict_review
-               ORDER BY verdict_id, decided_at DESC) d",
+         FROM (SELECT DISTINCT ON (unit) decision FROM (
+                   SELECT CASE WHEN v.cohort IS NULL THEN 'p' || v.id ELSE 'k' || v.cohort END AS unit,
+                          r.decision, r.decided_at
+                   FROM verdict_review r JOIN verdicts v ON v.id = r.verdict_id
+               ) x ORDER BY unit, decided_at DESC) d",
     )
     .fetch_one(&review.pool)
     .await
@@ -221,30 +254,136 @@ async fn queue(
         0 => "—".to_owned(),
         n => format!("{:.0}%", 100.0 * confirmed as f64 / n as f64),
     };
-    let rows = rows
-        .into_iter()
-        .map(|r| Row {
-            id: r.id,
-            status: status(r.decision.as_deref(), r.reviewer.as_deref()),
-            detectors: detector_names(&r.detector),
-            created: r.created,
-            portal: r.portal,
-            net: r.net,
-            retro_comments: r.retro_comments,
-            retro_votes: r.retro_votes,
-            roles: r
-                .roles
-                .filter(|r| !r.is_empty())
-                .unwrap_or_else(|| "—".into()),
-        })
-        .collect();
     page(Queue {
         reviewer,
         all,
-        rows,
+        rows: units,
         confirmed,
         rejected,
         precision,
+    })
+}
+
+fn single(r: QueueRow) -> Row {
+    Row {
+        href: format!("/presude/{}", r.id),
+        status: status(r.decision.as_deref(), r.reviewer.as_deref()),
+        open: r.decision.is_none(),
+        detectors: detector_names(&r.detector),
+        created: r.created,
+        portal: r.portal,
+        label: r.net,
+        retro_comments: r.retro_comments,
+        retro_votes: r.retro_votes,
+        roles: r
+            .roles
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(|| "—".into()),
+    }
+}
+
+/// Kohorta kao jedna stavka: svi njeni detektori i uloge, zbir naknadnog shadow-a, stanje
+/// pregleda (nepregledana, potvrđena/odbačena, ili delimično).
+fn cohort_row(c: i64, members: &[QueueRow]) -> Row {
+    let nets: BTreeSet<&str> = members.iter().map(|m| m.net.as_str()).collect();
+    let detectors: BTreeSet<&str> = members.iter().flat_map(|m| m.detector.split('+')).collect();
+    let roles: BTreeSet<&str> = members
+        .iter()
+        .filter_map(|m| m.roles.as_deref())
+        .flat_map(|r| r.split(", "))
+        .filter(|r| !r.is_empty())
+        .collect();
+    let decided: Vec<&QueueRow> = members.iter().filter(|m| m.decision.is_some()).collect();
+    let status = if decided.is_empty() {
+        "nepregledana".to_owned()
+    } else if decided.len() == members.len()
+        && decided.iter().all(|m| m.decision == decided[0].decision)
+    {
+        status(
+            decided[0].decision.as_deref(),
+            decided[0].reviewer.as_deref(),
+        )
+    } else {
+        format!("delimično ({}/{})", decided.len(), members.len())
+    };
+    Row {
+        href: format!("/kohorte/{c}"),
+        created: members
+            .iter()
+            .map(|m| m.created.clone())
+            .min()
+            .unwrap_or_default(),
+        portal: members[0].portal.clone(),
+        label: format!("kohorta #{c}: {} prefiksa", nets.len()),
+        detectors: detector_names(&detectors.into_iter().collect::<Vec<_>>().join("+")),
+        retro_comments: members.iter().map(|m| m.retro_comments).sum(),
+        retro_votes: members.iter().map(|m| m.retro_votes).sum(),
+        roles: if roles.is_empty() {
+            "—".into()
+        } else {
+            roles.into_iter().collect::<Vec<_>>().join(", ")
+        },
+        open: decided.len() < members.len(),
+        status,
+    }
+}
+
+// --- kohorta ----------------------------------------------------------------------------------
+
+#[derive(Template)]
+#[template(path = "cohort.html")]
+struct CohortPage {
+    reviewer: String,
+    id: i64,
+    portal: String,
+    members: Vec<Row>,
+    nets: usize,
+    open: usize,
+    summary: Summary,
+}
+
+async fn cohort_page(
+    State(review): State<Arc<Review>>,
+    Extension(Reviewer(reviewer)): Extension<Reviewer>,
+    Path(id): Path<i64>,
+) -> Result<Response, Failure> {
+    let rows: Vec<QueueRow> = sqlx::query_as(&format!(
+        "{VERDICT_ROWS} AND v.cohort = $1 ORDER BY v.created_at"
+    ))
+    .bind(id)
+    .fetch_all(&review.pool)
+    .await
+    .map_err(db)?;
+    if rows.is_empty() {
+        return Err((StatusCode::NOT_FOUND, "nema takve kohorte".into()));
+    }
+    // Opis je zajednički za celu kohortu: uzima se gotov, ako ga ima.
+    let summary: Option<SummaryRow> = sqlx::query_as(
+        "SELECT s.status, s.output, s.model, s.prompt_version, s.latency_ms, s.error
+         FROM cohort_summary s JOIN verdicts v ON v.id = s.verdict_id
+         WHERE v.cohort = $1
+         ORDER BY (s.status = 'done') DESC, s.done_at DESC NULLS LAST LIMIT 1",
+    )
+    .bind(id)
+    .fetch_optional(&review.pool)
+    .await
+    .map_err(db)?;
+    let nets = rows
+        .iter()
+        .map(|r| r.net.as_str())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let portal = rows[0].portal.clone();
+    let members: Vec<Row> = rows.into_iter().map(single).collect();
+    let open = members.iter().filter(|m| m.open).count();
+    page(CohortPage {
+        reviewer,
+        id,
+        portal,
+        members,
+        nets,
+        open,
+        summary: summary_view(summary),
     })
 }
 
@@ -344,6 +483,7 @@ struct Detail {
     role_note: String,
     /// Kohorta iz grafa: „#12 — 16 prefiksa"; prazno za presudu detektora po prefiksu.
     cohort: String,
+    cohort_href: String,
 }
 
 /// Uzorak akcija prefiksa iz prozora dokaza.
@@ -456,6 +596,9 @@ async fn detail(
     .fetch_optional(pool)
     .await
     .map_err(db)?;
+    let cohort_href = cohort_info
+        .map(|(c, _)| format!("/kohorte/{c}"))
+        .unwrap_or_default();
     let cohort_info = cohort_info
         .map(|(c, n)| format!("#{c} — {n} prefiksa, jedan opis modela za celu kohortu"))
         .unwrap_or_default();
@@ -544,6 +687,7 @@ async fn detail(
         role_known,
         role_note,
         cohort: cohort_info,
+        cohort_href,
     })
 }
 
@@ -715,15 +859,8 @@ struct DecisionForm {
 
 const NOTE_MAX: usize = 500;
 
-/// Potvrda je samo oznaka. Odbacivanje uz oznaku i zaustavi presudu, ako još važi: nova revizija
-/// `none` za prefiks, do isteka roka koliko je trajala presuda, u Valkey i u audit — engine je do
-/// tada ne obnavlja ni ne dopunjuje. Naknadno skinute akcije ostaju skinute (§5).
-async fn decide(
-    State(review): State<Arc<Review>>,
-    Extension(Reviewer(reviewer)): Extension<Reviewer>,
-    Path(id): Path<i64>,
-    Form(form): Form<DecisionForm>,
-) -> Result<Response, Failure> {
+/// Odluka iz forme: poznata, napomena u granici.
+fn checked(form: &DecisionForm) -> Result<(&str, &str), Failure> {
     if !matches!(form.decision.as_str(), "confirm" | "reject") {
         return Err((StatusCode::BAD_REQUEST, "nepoznata odluka".into()));
     }
@@ -734,68 +871,126 @@ async fn decide(
             format!("napomena duža od {NOTE_MAX} znakova"),
         ));
     }
-    let mut tx = review.pool.begin().await.map_err(db)?;
-    let verdict: Option<(String, String, i64)> = sqlx::query_as(
-        "SELECT portal, key, until_ms - (extract(epoch FROM created_at) * 1000)::bigint
-         FROM verdicts WHERE id = $1 AND action = 'shadow'",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(db)?;
-    let Some((portal, net, length_ms)) = verdict else {
-        return Err((StatusCode::NOT_FOUND, "nema takve presude".into()));
-    };
-    sqlx::query(
-        "INSERT INTO verdict_review (verdict_id, decision, reviewer, note) VALUES ($1, $2, $3, $4)",
-    )
-    .bind(id)
-    .bind(&form.decision)
-    .bind(&reviewer)
-    .bind((!note.is_empty()).then_some(note))
-    .execute(&mut *tx)
-    .await
-    .map_err(db)?;
+    Ok((&form.decision, note))
+}
 
-    if form.decision == "reject" {
-        // Isti red zaključava i engine (`issue_net_shadow`), pa se presuda i odbacivanje ne mimoilaze.
-        let last: (i64, i32, String) = sqlx::query_as(
-            "SELECT until_ms, rev, action FROM verdicts
-             WHERE portal = $1 AND key_kind = 'net' AND key = $2
-             ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+async fn decide(
+    State(review): State<Arc<Review>>,
+    Extension(Reviewer(reviewer)): Extension<Reviewer>,
+    Path(id): Path<i64>,
+    Form(form): Form<DecisionForm>,
+) -> Result<Response, Failure> {
+    let (decision, note) = checked(&form)?;
+    apply(&review, &[id], decision, &reviewer, note).await?;
+    Ok(Redirect::to(&format!("/presude/{id}")).into_response())
+}
+
+/// Odluka o celoj kohorti: ista odluka za svaku njenu presudu.
+async fn decide_cohort(
+    State(review): State<Arc<Review>>,
+    Extension(Reviewer(reviewer)): Extension<Reviewer>,
+    Path(id): Path<i64>,
+    Form(form): Form<DecisionForm>,
+) -> Result<Response, Failure> {
+    let (decision, note) = checked(&form)?;
+    let ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM verdicts WHERE cohort = $1 AND action = 'shadow' ORDER BY id",
+    )
+    .bind(id)
+    .fetch_all(&review.pool)
+    .await
+    .map_err(db)?;
+    if ids.is_empty() {
+        return Err((StatusCode::NOT_FOUND, "nema takve kohorte".into()));
+    }
+    apply(&review, &ids, decision, &reviewer, note).await?;
+    Ok(Redirect::to(&format!("/kohorte/{id}")).into_response())
+}
+
+/// Potvrda je samo oznaka. Odbacivanje uz oznaku i zaustavi presudu prefiksa, ako još važi: nova
+/// revizija `none`, do isteka roka koliko je trajala presuda, u Valkey i u audit — engine je do
+/// tada ne obnavlja ni ne dopunjuje. Naknadno skinute akcije ostaju skinute (§5). Sve presude
+/// odluke (kohorta) u jednoj transakciji i jednim `MULTI`: bez upisa u Valkey nema ni zapisa u
+/// audit-u, ni za jedan prefiks.
+async fn apply(
+    review: &Review,
+    ids: &[i64],
+    decision: &str,
+    reviewer: &str,
+    note: &str,
+) -> Result<(), Failure> {
+    let mut tx = review.pool.begin().await.map_err(db)?;
+    // Prefiks → (trajanje presude, presuda); BTreeMap: isti redosled zaključavanja kao engine.
+    let mut keys: BTreeMap<(String, String), (i64, i64)> = BTreeMap::new();
+    for &id in ids {
+        let verdict: Option<(String, String, i64)> = sqlx::query_as(
+            "SELECT portal, key, until_ms - (extract(epoch FROM created_at) * 1000)::bigint
+             FROM verdicts WHERE id = $1 AND action = 'shadow'",
         )
-        .bind(&portal)
-        .bind(&net)
-        .fetch_one(&mut *tx)
+        .bind(id)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
+        let Some((portal, net, length_ms)) = verdict else {
+            return Err((StatusCode::NOT_FOUND, "nema takve presude".into()));
+        };
+        sqlx::query(
+            "INSERT INTO verdict_review (verdict_id, decision, reviewer, note) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(id)
+        .bind(decision)
+        .bind(reviewer)
+        .bind((!note.is_empty()).then_some(note))
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        keys.entry((portal, net)).or_insert((length_ms, id));
+    }
+
+    if decision == "reject" {
         let now = now_ms();
-        if last.2 == "shadow" && last.0 > now {
+        let mut sets = Vec::new();
+        for ((portal, net), &(length_ms, id)) in &keys {
+            // Isti red zaključava i engine (`issue_net_shadow`): presuda i odbacivanje se ne mimoilaze.
+            let last: (i64, i32, String) = sqlx::query_as(
+                "SELECT until_ms, rev, action FROM verdicts
+                 WHERE portal = $1 AND key_kind = 'net' AND key = $2
+                 ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
+            )
+            .bind(portal)
+            .bind(net)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if last.2 != "shadow" || last.0 <= now {
+                continue;
+            }
             let until = now + length_ms.max(1);
             let rev = last.1 + 1;
             sqlx::query(
                 "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence)
                  VALUES ($1, 'net', $2, 'none', $3, $4, 'review', $5)",
             )
-            .bind(&portal)
-            .bind(&net)
+            .bind(portal)
+            .bind(net)
             .bind(until)
             .bind(rev)
             .bind(serde_json::json!({"review": {"verdict": id, "reviewer": reviewer}}))
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+            sets.push((net_key(portal, net), value("none", until, rev), until - now));
+        }
+        if !sets.is_empty() {
             let valkey = async {
                 let mut c = review.valkey.get_multiplexed_async_connection().await?;
-                redis::cmd("SET")
-                    .arg(net_key(&portal, &net))
-                    .arg(value("none", until, rev))
-                    .arg("PX")
-                    .arg(until - now)
-                    .query_async::<()>(&mut c)
-                    .await
+                let mut pipe = redis::pipe();
+                pipe.atomic();
+                for (key, val, px) in &sets {
+                    pipe.cmd("SET").arg(key).arg(val).arg("PX").arg(px).ignore();
+                }
+                pipe.query_async::<()>(&mut c).await
             };
-            // Kao kod engine-a: bez upisa u Valkey nema ni zapisa u audit-u.
             valkey.await.map_err(|e| {
                 eprintln!("klaka-api: recenzent: valkey: {e}");
                 (
@@ -806,7 +1001,7 @@ async fn decide(
         }
     }
     tx.commit().await.map_err(db)?;
-    Ok(Redirect::to(&format!("/presude/{id}")).into_response())
+    Ok(())
 }
 
 fn now_ms() -> i64 {

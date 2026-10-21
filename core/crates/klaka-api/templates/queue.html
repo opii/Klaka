@@ -2,7 +2,7 @@
 {% block content %}
 <p>
   Preciznost reda: <strong>{{ precision }}</strong>
-  <span class="muted">(potvrđenih {{ confirmed }}, odbačenih {{ rejected }}; poslednja odluka po presudi)</span>
+  <span class="muted">(potvrđenih {{ confirmed }}, odbačenih {{ rejected }}; po kohorti ili pojedinačnoj presudi, poslednja odluka)</span>
 </p>
 <p>
   {% if all %}
@@ -17,15 +17,15 @@
 <div class="scroll">
 <table>
   <thead>
-    <tr><th>Presuda (UTC)</th><th>Portal</th><th>Prefiks</th><th>Detektori</th><th>Uloga</th>
+    <tr><th>Presuda (UTC)</th><th>Portal</th><th>Prefiks ili kohorta</th><th>Detektori</th><th>Uloga</th>
         <th>Naknadno skinuto</th><th>Pregled</th></tr>
   </thead>
   <tbody>
   {% for r in rows %}
     <tr>
-      <td><a href="/presude/{{ r.id }}">{{ r.created }}</a></td>
+      <td><a href="{{ r.href }}">{{ r.created }}</a></td>
       <td>{{ r.portal }}</td>
-      <td><code>{{ r.net }}</code></td>
+      <td><a href="{{ r.href }}"><code>{{ r.label }}</code></a></td>
       <td>{{ r.detectors }}</td>
       <td>{{ r.roles }}</td>
       <td class="n">{{ r.retro_comments }} kom. · {{ r.retro_votes }} gl.</td>

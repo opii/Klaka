@@ -114,6 +114,13 @@ razlozima (`docs/caci.md` §1). Oba su savetodavna: presuda ne zavisi od njih, a
 recenzentova. Presude prefiksa iz iste komponente grafa (usklađeni glasovi i šabloni) nose isti
 ID kohorte, i kroz krugove; kohorta ima jedan opis.
 
+Kohorta je u redu za pregled **jedna stavka** (presude detektora po prefiksu ostaju pojedinačne),
+a odluka o kohorti važi za svaku njenu presudu: odluka se upisuje uz svaku, a odbacivanje zaustavlja
+presude svih prefiksa koje još važe — sve u jednoj transakciji i jednim `MULTI` u Valkey-ju, pa bez
+upisa u Valkey nema zapisa ni za jedan prefiks. Preciznost reda se meri po jedinici pregleda
+(kohorti ili pojedinačnoj presudi), kao udeo prijavljenih kohorti koje recenzent potvrdi
+(koncept §11).
+
 UI recenzenta je na posebnom listener-u, nikad na javnoj adresi `/v1/view`. Prijava je HTTP
 Basic (ime i token recenzenta), a odluku prima samo sa istog origin-a (browser bi Basic podatke
 poslao i sa tuđe stranice). Bez JavaScript-a; sadržaj od korisnika portala (tekst komentara,

@@ -331,3 +331,120 @@ async fn reviewer_sees_evidence_and_rejection_stops_the_verdict() {
         .await
         .unwrap();
 }
+
+#[tokio::test]
+async fn cohort_is_one_queue_item_and_decided_at_once() {
+    let Some((admin, pool, schema)) = schema("cohort").await else {
+        return;
+    };
+    let Ok(valkey_url) = std::env::var("KLAKA_TEST_VALKEY_URL") else {
+        return;
+    };
+    let valkey = redis::Client::open(valkey_url).unwrap();
+    let portal = format!("{schema}.local");
+    let verdict = |net: &'static str, cohort: Option<i64>| {
+        let (pool, portal) = (pool.clone(), portal.clone());
+        async move {
+            let (id,): (i64,) = sqlx::query_as(
+                "INSERT INTO verdicts (portal, key_kind, key, action, until_ms, rev, detector, evidence, cohort)
+                 VALUES ($1, 'net', $2, 'shadow', (extract(epoch FROM now()) * 1000)::bigint + 3600000,
+                         1, 'coordinated-templates', '{\"window_s\": 600, \"cohorts\": []}', $3)
+                 RETURNING id",
+            )
+            .bind(&portal)
+            .bind(net)
+            .bind(cohort)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            id
+        }
+    };
+    let a = verdict("198.18.61.0/24", Some(5)).await;
+    let b = verdict("198.18.62.0/24", Some(5)).await;
+    verdict("198.18.63.0/24", None).await;
+    sqlx::query(
+        "INSERT INTO cohort_summary (verdict_id, status, output, model, prompt_version)
+         VALUES ($1, 'done', $2, 'gemma3:12b@x', 'g2-3')",
+    )
+    .bind(a)
+    .bind(
+        json!({"poruka": "Hvale iste komentare.", "stav": "podrška", "kohezija": "visoka",
+                 "toksicnost": "nema", "hvale": 4, "napadaju": 0, "skrecu": 0, "uzorak": 4,
+                 "sazetak": "Isti šabloni sa dva prefiksa."}),
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let ui = || app(pool.clone(), valkey.clone());
+
+    // Red: kohorta je jedna stavka, pojedinačna presuda posebna.
+    let (_, _, body) = call(ui(), get("/")).await;
+    assert!(
+        body.contains("kohorta #5: 2 prefiksa") && body.contains("198.18.63.0/24"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("198.18.61.0/24"),
+        "članovi kohorte nisu posebne stavke: {body}"
+    );
+    let (status, _, body) = call(ui(), get("/kohorte/5")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("198.18.61.0/24")
+            && body.contains("198.18.62.0/24")
+            && body.contains("Odbaci kohortu")
+            && body.contains("Isti šabloni sa dva prefiksa."),
+        "{body}"
+    );
+
+    // Odbacivanje cele kohorte: odluka i `none` za oba prefiksa, jednim zahtevom.
+    let req = Request::post("/kohorte/5/odluka")
+        .header(header::HOST, HOST)
+        .header(header::AUTHORIZATION, basic("ana", TOKEN))
+        .header(header::ORIGIN, format!("http://{HOST}"))
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from("decision=reject&note=organska+rasprava"))
+        .unwrap();
+    let (status, headers, _) = call(ui(), req).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/kohorte/5");
+    let reviewed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM verdict_review WHERE verdict_id = ANY($1) AND decision = 'reject'",
+    )
+    .bind(vec![a, b])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(reviewed, 2);
+    let mut c = valkey.get_multiplexed_async_connection().await.unwrap();
+    for net in ["198.18.61.0/24", "198.18.62.0/24"] {
+        let key = klaka_core::verdict::net_key(&portal, net);
+        let stored: String = redis::cmd("GET")
+            .arg(&key)
+            .query_async(&mut c)
+            .await
+            .unwrap();
+        assert!(stored.contains("\"none\""), "{net}: {stored}");
+        redis::cmd("DEL")
+            .arg(&key)
+            .query_async::<()>(&mut c)
+            .await
+            .unwrap();
+    }
+
+    // Kohorta je pregledana: van podrazumevanog reda; preciznost po jedinici (jedna odbačena).
+    let (_, _, body) = call(ui(), get("/")).await;
+    assert!(
+        !body.contains("kohorta #5") && body.contains("<strong>0%</strong>"),
+        "{body}"
+    );
+    let (_, _, body) = call(ui(), get("/?sve=1")).await;
+    assert!(body.contains("odbačena (ana)"), "{body}");
+
+    pool.close().await;
+    sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
+        .execute(&admin)
+        .await
+        .unwrap();
+}
