@@ -112,7 +112,7 @@ pub struct Signals {
 
 /// Verzija pravila: uloga starije verzije se preračunava iz sačuvanog opisa (`refresh`), bez
 /// ponovnog poziva modela.
-pub const ROLE_VERSION: &str = "u3";
+pub const ROLE_VERSION: &str = "u4";
 
 /// Najmanje glasova jednog smera da bi smer bio signal uloge, i najmanji udeo među glasovima
 /// prefiksa: pojedinačan glas suprotnog smera ne pravi ulogu.
@@ -192,12 +192,20 @@ pub fn roles(s: &Signals) -> Value {
     {
         diluter.push(format!("{k} od {n} komentara skreće sa teme"));
     }
-    if concentrated && side(s.votes_for_cohort) {
-        diluter.push(format!(
-            "{} glasova „za\" komentare sopstvene kohorte, {:.0}% komentara na jednom članku",
-            s.votes_for_cohort,
-            100.0 * s.top_post_share
-        ));
+    // Glasovi za sopstvene komentare, više nego za tuđe: kohorta gura svoj sadržaj, ne tuđe
+    // ciljeve — bihevioralni potpis, i kad zatrpava više članaka i kad opisa modela nema.
+    if side(s.votes_for_cohort) && s.votes_for_cohort > s.votes_for {
+        let mut r = format!(
+            "{} od {votes} glasova „za\" komentare sopstvene kohorte",
+            s.votes_for_cohort
+        );
+        if concentrated {
+            r.push_str(&format!(
+                ", {:.0}% komentara na jednom članku",
+                100.0 * s.top_post_share
+            ));
+        }
+        diluter.push(r);
     }
     if !diluter.is_empty() {
         out.push(("razvodnjivač", diluter));
@@ -433,6 +441,26 @@ mod tests {
         assert_eq!(names(&roles(&noisy)), ["pojačivač"]);
         // Skretanje u manjini, na tri članka: nije razvodnjivač.
         assert!(!names(&roles(&mixed)).contains(&"razvodnjivač"));
+    }
+
+    #[test]
+    fn own_cohort_votes_make_a_diluter_on_two_posts_without_description() {
+        // uloge-3/4: razvodnjivači na dva članka glasaju jedni za druge; opisa modela nema.
+        let two_posts = Signals {
+            comments: 8,
+            top_post_share: 0.5,
+            votes_for_cohort: 4,
+            ..Signals::default()
+        };
+        let v = roles(&two_posts);
+        assert_eq!(names(&v), ["razvodnjivač"], "{v}");
+        // Pojačivač koji usput glasa i za svoje: više glasova za tuđe — nije razvodnjivač.
+        let amplifier = Signals {
+            votes_for: 12,
+            votes_for_cohort: 4,
+            ..Signals::default()
+        };
+        assert_eq!(names(&roles(&amplifier)), ["pojačivač"]);
     }
 
     #[test]

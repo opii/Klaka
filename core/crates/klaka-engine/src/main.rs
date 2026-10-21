@@ -20,7 +20,8 @@
 //!   usklađeni glasovi: razmak, sličnost skupova, partnera, prefiksa, prozor promocije
 //!   (120, 0.5, 2, 5, 600)
 //! - `KLAKA_OLLAMA_URL`, `KLAKA_EMBED_MODEL`  embeddings komentara (bez njih: samo MinHash)
-//! - `KLAKA_LLM_MODEL`           opis kohorte za recenzenta (G2/G3), u pozadini; bez njega nema
+//! - `KLAKA_DESCRIBE_MODEL`      opis kohorte za recenzenta (G2/G3), u pozadini (podrazumevano
+//!   `KLAKA_LLM_MODEL`); bez oba nema
 //!   opisa, presude rade isto
 //! - `KLAKA_RETENTION_DAYS`      koliko dugo se čuvaju embeddings i opisi kohorti, kao i događaji (30)
 //! - `KLAKA_ENGINE_TTL_S`        trajanje presude (3600)
@@ -96,9 +97,9 @@ async fn main() {
     let mut embed_error: Option<String> = None;
     if let (Some(url), Some(model)) = (
         ollama_url.clone(),
-        std::env::var("KLAKA_LLM_MODEL")
-            .ok()
-            .filter(|m| !m.trim().is_empty()),
+        ["KLAKA_DESCRIBE_MODEL", "KLAKA_LLM_MODEL"]
+            .into_iter()
+            .find_map(|k| std::env::var(k).ok().filter(|m| !m.trim().is_empty())),
     ) {
         tokio::spawn(describe_worker(pool.clone(), url, model));
     }

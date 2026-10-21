@@ -46,7 +46,7 @@ Detekcija mora da ih uhvati bez obzira na to koga guraju, potiskuju ili kome gas
 Uloga se ocenjuje na **kohorti, ne na pojedincu**: i pravi čitaoci ponekad pišu prazne ili
 grube komentare.
 
-**Kako je Klaka računa** (`klaka-engine` `role.rs`, pravila `u3`): uz opis kohorte, za prefiks
+**Kako je Klaka računa** (`klaka-engine` `role.rs`, pravila `u4`): uz opis kohorte, za prefiks
 presude, iz prozora dokaza i 2 minuta posle presude (kohorta tada još radi). Uloge dele prefiks
 (ista kancelarija), pa je ishod **skup uloga, svaka sa razlogom**:
 
@@ -55,8 +55,9 @@ presude, iz prozora dokaza i 2 minuta posle presude (kohorta tada još radi). Ul
 - **ćaci** — glasovi „protiv" (uz autore na koje ciljaju), ili komentari koji napadaju **uz**
   toksičnost, ili izrazita toksičnost;
 - **razvodnjivač** — većina komentara skreće sa teme, ili su komentari na jednom članku (≥ 80%)
-  uz skretanje ili glasove „za" komentare sopstvene kohorte (razvodnjivači glasaju jedni za
-  druge, da njihov sadržaj ostane gore).
+  uz skretanje, ili glasovi „za" komentare sopstvene kohorte (≥ 3, ≥ četvrtina glasova i više
+  nego za tuđe; od `u4` i kad zatrpava više članaka) — razvodnjivači glasaju jedni za druge, da
+  njihov sadržaj ostane gore.
 
 Relevantnost prema tekstu članka (embeddings) odvaja klaku od publike (0,26–0,34 prema
 0,44–0,51), ali ne uloge međusobno — opšte pohvale, uvrede i skretanje se podjednako slabo tiču
@@ -73,7 +74,13 @@ prefiksima, razvodnjivači na dva članka; pravila `u3` nepromenjena): tačan sk
 Ćaci 8/8 bez lažnih (glasovi „protiv" i toksičnost); pojačivač 8/8, ali uz 5 lažnih; razvodnjivač
 2/8. Uzrok je brojanje malog modela: za čisto skretanje („Danas sam pravio sarmu") kaže da skreće
 2–3 od 8, a da 1–2 „hvale" — to prelazi prag pojačivača —, a pravilo „jedan članak" ne važi kad
-razvodnjivači zatrpavaju dva. Relevantnost ni ovde ne razdvaja (0,33–0,37, publika 0,36–0,37). Ocena toksičnosti i relevantnosti mora biti ista za isti ton bez obzira na
+razvodnjivači zatrpavaju dva. Relevantnost ni ovde ne razdvaja (0,33–0,37, publika 0,36–0,37).
+
+**Sa većim modelom** (`gemma3:12b`, izabran merenjem, `docs/llm.md` §7), isti opisi ponovo, pravila
+`u3` nepromenjena: **24/24** — uzrok je bio model, ne pravila. Pravila `u4` (glasovi „za"
+sopstvenu kohortu i na više članaka) ne menjaju ni jedan ni drugi skup (63/72, 24/24); na svežem
+profilu `uloge-5` (treći skup šablona, drugi ciljevi i članci): **6/6**. Mali uzorci, sintetički
+emulator — prava mera dolazi sa označenim kohortama sa portala. Ocena toksičnosti i relevantnosti mora biti ista za isti ton bez obzira na
 stav (koncept §5); toksičan ili prazan komentar organskog čitaoca je posao moderacije, ne Klake.
 
 Poslušnik je i najteži protivnik. Skriptu hvata token pregleda; čoveka u pravom browseru ne

@@ -299,6 +299,9 @@ pretnji i psovki; laptop Intel Core 5 210H, 30 GB RAM, CPU):
 - Nijedan model ne odbija mržnju ni psovke — opisuje ih (dobro).
 - Svi modeli za čisto skretanje češće kažu stav „mešovito" nego „skretanje"; brojevi po vrsti
   su pouzdaniji od stava.
+- Na ulozi kohorte (`caci.md` §1), na istim kohortama `uloge-3/4`: sa opisom `gemma3:4b` tačan
+  skup uloga 16/24, sa `gemma3:12b` 24/24. Engine zato opisuje sa `gemma3:12b`
+  (`KLAKA_DESCRIBE_MODEL`), a emulator parafrazira sa bržim `KLAKA_LLM_MODEL`.
 - Skup je mali i sintetički; uz pravi rad treba proširiti ručno označenim kohortama sa portala.
 
 ---

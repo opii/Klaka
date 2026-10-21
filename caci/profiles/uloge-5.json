@@ -1,0 +1,75 @@
+{
+  "name": "uloge-5",
+  "level": 3,
+  "roles": {
+    "amplifier": 3,
+    "caci": 3,
+    "diluter": 3
+  },
+  "votes": 3,
+  "comments": 3,
+  "targets": {
+    "push": [
+      "c3",
+      "c8",
+      "c14"
+    ],
+    "sink": [
+      "c4",
+      "c5",
+      "c13"
+    ],
+    "dilute": [
+      "p-1001",
+      "p-1002"
+    ]
+  },
+  "mirror": true,
+  "window_s": 10,
+  "prefixes": 1,
+  "separate_roles": true,
+  "delay_ms": {
+    "median": 800,
+    "sigma": 0.4
+  },
+  "token_wait_ms": 2500,
+  "token_per_vote": true,
+  "dwell_ms": {
+    "median": 1500,
+    "sigma": 0.3
+  },
+  "templates": {
+    "amplifier": [
+      "Potpisujem svaku reč.",
+      "E ovo je komentar za pamćenje.",
+      "Retko pametno, hvala ti.",
+      "Ovo je jedino razumno mišljenje.",
+      "Apsolutno tačno, bravo za ovo."
+    ],
+    "caci": [
+      "Ćuti bre, niko te ništa nije pitao.",
+      "Kakav si ti smor, čoveče.",
+      "Tvoji komentari su jad i beda.",
+      "Nauči prvo da pišeš, pa se javi.",
+      "Bljak, koliko gluposti na jednom mestu."
+    ],
+    "diluter": [
+      "Zna li neko dobrog vodoinstalatera u centru?",
+      "Sutra opet kiša, kažu.",
+      "Koji film da gledam večeras?",
+      "Prodajem bicikl, skoro nov, javite se.",
+      "Ima li neko recept za proju?",
+      "Lepo veče svima želim."
+    ]
+  },
+  "audience": {
+    "readers": 50,
+    "cgnat": 20,
+    "read_ms": {
+      "median": 6000,
+      "sigma": 0.6
+    },
+    "vote_p": 0.6,
+    "comment_p": 0.2
+  }
+}
