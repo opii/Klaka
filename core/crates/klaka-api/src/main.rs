@@ -11,6 +11,8 @@
 //!   bez njih nema UI-ja recenzenta. Traži i `KLAKA_POSTGRES_URL` i `KLAKA_VALKEY_URL`.
 //! - `KLAKA_REVIEW_ADDR`       adresa UI-ja recenzenta (podrazumevano `0.0.0.0:8083`) — poseban
 //!   listener, nikad javna adresa `/v1/view`
+//! - `KLAKA_PORTAL_LINKS`      javne adrese portala za linkove sa presude na komentar,
+//!   `portal=http://…` odvojeni zarezom (npr. `demo.local=http://localhost:18082`)
 
 use std::net::SocketAddr;
 
@@ -122,6 +124,13 @@ fn review_ui() -> Option<(String, Review)> {
             pool,
             valkey,
             reviewers,
+            portals: std::env::var("KLAKA_PORTAL_LINKS")
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|e| e.split_once('='))
+                .map(|(p, u)| (p.trim().to_owned(), u.trim().to_owned()))
+                .filter(|(p, u)| !p.is_empty() && u.starts_with("http"))
+                .collect(),
         },
     ))
 }

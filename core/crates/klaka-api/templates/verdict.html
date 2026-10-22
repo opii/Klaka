@@ -74,7 +74,7 @@
   <tbody>
   {% for c in comments %}
     <tr>
-      <td>{{ c.at }}</td><td>{{ c.post }}</td><td>{{ c.author }}</td><td>{{ c.text }}</td>
+      <td>{{ c.at }}</td><td>{% if c.href.is_empty() %}{{ c.post }}{% else %}<a href="{{ c.href }}">{{ c.post }}</a>{% endif %}</td><td>{{ c.author }}</td><td>{{ c.text }}</td>
       <td>{{ c.decision }}{% if c.retro %} <span class="tag warn">naknadno skinut</span>{% endif %}</td>
     </tr>
   {% endfor %}

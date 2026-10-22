@@ -18,10 +18,19 @@ const TOKEN: &str = "ana-token-0123456789";
 const HOST: &str = "localhost:18083";
 
 fn app(pool: PgPool, valkey: redis::Client) -> Router {
+    app_with(pool, valkey, &[])
+}
+
+/// Sa javnim adresama portala (linkovi sa presude na komentar).
+fn app_with(pool: PgPool, valkey: redis::Client, portals: &[(&str, &str)]) -> Router {
     router(Review {
         pool,
         valkey,
         reviewers: vec![("ana".into(), TOKEN.into())],
+        portals: portals
+            .iter()
+            .map(|(p, u)| ((*p).to_owned(), (*u).to_owned()))
+            .collect(),
     })
 }
 
@@ -214,7 +223,35 @@ async fn reviewer_sees_evidence_and_rejection_stops_the_verdict() {
         .execute(&pool)
         .await
         .unwrap();
-    let ui = || app(pool.clone(), valkey.clone());
+    let ui = || {
+        app_with(
+            pool.clone(),
+            valkey.clone(),
+            &[(&portal, "http://portal.test")],
+        )
+    };
+
+    // Portal (Rendgen): poslednja presuda po prefiksu, sa ulogom; nepoznat prefiks se izostavi.
+    let (status, _, body) = call(
+        ui(),
+        get(&format!(
+            "/api/presude?portal={portal}&nets={net},10.0.0.0/24"
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let api: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(api.as_array().map(Vec::len), Some(1), "{body}");
+    assert_eq!(api[0]["id"], id);
+    assert_eq!(api[0]["active"], true);
+    assert_eq!(api[0]["roles"], "pojačivač, ćaci");
+    assert!(
+        api[0]["detectors"]
+            .as_str()
+            .unwrap()
+            .contains("deljeni šabloni"),
+        "{body}"
+    );
 
     let (status, _, body) = call(ui(), get("/")).await;
     assert_eq!(status, StatusCode::OK);
@@ -234,6 +271,10 @@ async fn reviewer_sees_evidence_and_rejection_stops_the_verdict() {
     assert!(
         !body.contains("<script>"),
         "tekst komentara nije escape-ovan"
+    );
+    assert!(
+        body.contains("http://portal.test/p/p-1?komentar=k1"),
+        "link na komentar u portalu: {body}"
     );
     assert!(
         body.contains("naknadno skinut") && body.contains("protiv"),

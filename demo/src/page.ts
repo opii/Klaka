@@ -69,10 +69,49 @@ const STYLE = `
   .reg { color: #1a7f37; font-size: 12px; margin-left: 4px }
   .err { color: #b3261e; font-size: 14px }
   .narrow { max-width: 360px }
+  .views { margin: 6px 0 14px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 14px }
+  .views a { border: 1px solid var(--line); border-radius: 14px; padding: 2px 10px; text-decoration: none; color: var(--muted) }
+  .views a.on { border-color: var(--accent); color: var(--accent); font-weight: 600 }
+  .banner { border-left: 3px solid var(--accent); background: var(--soft); padding: 8px 12px; font-size: 14px; margin: 10px 0 }
+  .xsum { background: var(--soft); padding: 10px 12px; font-size: 14px; margin: 10px 0 }
+  .xsum ul { margin: 6px 0 0; padding-left: 18px }
+  .c.hidden-c { opacity: .55 }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px }
+  .b { font-size: 12px; border-radius: 4px; padding: 1px 6px; background: var(--soft); color: var(--muted); text-decoration: none }
+  .b.shadow-b { background: #fbe9d6; color: #8a4500 } .b.retro-b { background: #fde2e2; color: #9b1c1c }
+  .b.verdict-b { background: #e4ecfb; color: #1f4fae }
+  @media (prefers-color-scheme: dark) { .b.shadow-b { background: #3a2a18; color: #f0b27a } .b.retro-b { background: #3a1c1c; color: #f2a0a0 } .b.verdict-b { background: #1c2a45; color: #9dbcf5 } }
+  .xline { font-size: 12px; color: var(--muted); margin-top: 2px }
 `;
 
 /** Ko gleda stranicu (za zaglavlje): prijavljen nalog ili niko. */
 export type User = Account | null;
+
+/**
+ * Pogled na komentare: javni; kako portal izgleda klaki (svi njeni glasovi i komentari kao
+ * uračunati — svaki poslušnik vidi samo svoje, ovde su svi zajedno); i „Rendgen" — šta je
+ * Klaka prepoznala.
+ */
+export type View = "javno" | "poslusnik" | "rendgen";
+export const VIEWS: View[] = ["javno", "poslusnik", "rendgen"];
+const VIEW_NAMES: Record<View, string> = { javno: "Javno", poslusnik: "Pogled poslušnika", rendgen: "Rendgen" };
+
+/** Napomena uz komentar u pogledima „Poslušnik" i „Rendgen". */
+export interface Note {
+  /** Posetilac ovaj komentar inače ne vidi (tuđ shadow): bez glasanja i bez `seen`. */
+  foreign: boolean;
+  badges: { text: string; kind: "shadow" | "retro" | "verdict" | "info"; href?: string }[];
+  line?: string;
+}
+
+/** Sažetak Rendgena za članak. */
+export interface Xray {
+  comments: { total: number; public: number; shadow: number; retro: number };
+  votes: { total: number; public: number; shadow: number; retro: number };
+  verdicts: { label: string; href: string }[];
+  /** Presude iz klaka-api su stigle (podešen nalog portala i API dostupan). */
+  linked: boolean;
+}
 
 function layout(o: {
   title: string; head?: string; body: string; section?: string; wide?: boolean; portal: string; user: User;
@@ -162,16 +201,36 @@ export function sectionPage(o: {
   });
 }
 
-function commentBox(c: Comment, reply: boolean): string {
-  return `
-      <div class="c${reply ? " reply" : ""}" id="${esc(c.id)}" data-comment="${esc(c.id)}" data-klaka-comment="${esc(c.id)}">
-        <div><div class="a">${esc(c.author)}${c.account !== null ? '<span class="reg" title="Registrovan nalog">✓</span>' : ""}<span class="when">${esc(when(c.t))}</span></div><div>${esc(c.text)}</div>
-          <button class="answer" type="button" data-reply="${esc(c.id)}" data-author="${esc(c.author)}">Odgovori</button></div>
-        <div class="v">
+function commentBox(c: Comment, reply: boolean, note?: Note): string {
+  // Tuđ shadow komentar (samo u pogledima koji ga pokazuju): bez glasanja, odgovora i `seen`.
+  const foreign = note?.foreign === true;
+  const badges = note?.badges.length
+    ? `<div class="badges">${note.badges
+        .map((b) => {
+          const cls = `b ${b.kind}-b`;
+          return b.href
+            ? `<a class="${cls}" href="${esc(b.href)}">${esc(b.text)}</a>`
+            : `<span class="${cls}">${esc(b.text)}</span>`;
+        })
+        .join("")}</div>`
+    : "";
+  const line = note?.line ? `<div class="xline">${esc(note.line)}</div>` : "";
+  const attrs = foreign
+    ? `class="c${reply ? " reply" : ""} hidden-c" id="${esc(c.id)}"`
+    : `class="c${reply ? " reply" : ""}" id="${esc(c.id)}" data-comment="${esc(c.id)}" data-klaka-comment="${esc(c.id)}"`;
+  const votes = foreign
+    ? `<div class="v"><span class="s">${esc(c.score)}</span></div>`
+    : `<div class="v">
           <button data-dir="1" aria-label="Plus za komentar">+</button>
           <span class="s" data-score>${esc(c.score)}</span>
           <button data-dir="-1" aria-label="Minus za komentar">−</button>
-        </div>
+        </div>`;
+  return `
+      <div ${attrs}>
+        <div><div class="a">${esc(c.author)}${c.account !== null ? '<span class="reg" title="Registrovan nalog">✓</span>' : ""}<span class="when">${esc(when(c.t))}</span></div><div>${esc(c.text)}</div>
+          ${badges}${line}
+          ${foreign ? "" : `<button class="answer" type="button" data-reply="${esc(c.id)}" data-author="${esc(c.author)}">Odgovori</button>`}</div>
+        ${votes}
       </div>`;
 }
 
@@ -188,11 +247,30 @@ export function articlePage(o: {
   total: number;
   sort: Sort;
   page: number;
+  /** Prekidač pogleda (isključen na javnom serveru, `PORTAL_XRAY`). */
+  views: boolean;
+  view: View;
+  notes?: Map<string, Note>;
+  xray?: Xray;
 }): string {
   const pages = Math.max(1, Math.ceil(o.threads.length / PAGE));
   const shown = o.threads.slice((o.page - 1) * PAGE, o.page * PAGE);
-  const list = shown.map((t) => commentBox(t.root, false) + t.replies.map((r) => commentBox(r, true)).join("")).join("");
-  const href = (sort: Sort, page: number) => `/p/${esc(o.post.id)}?sort=${sort}${page > 1 ? `&strana=${page}` : ""}#komentari`;
+  const box = (c: Comment, reply: boolean) => commentBox(c, reply, o.notes?.get(c.id));
+  const list = shown.map((t) => box(t.root, false) + t.replies.map((r) => box(r, true)).join("")).join("");
+  const href = (sort: Sort, page: number, view: View = o.view) =>
+    `/p/${esc(o.post.id)}?sort=${sort}${page > 1 ? `&strana=${page}` : ""}${view !== "javno" ? `&pogled=${view}` : ""}#komentari`;
+  const views = o.views
+    ? `<div class="views">${VIEWS.map(
+        (v) => `<a href="${href(o.sort, 1, v)}"${v === o.view ? ' class="on"' : ""}>${VIEW_NAMES[v]}</a>`,
+      ).join("")}</div>`
+    : "";
+  const banner =
+    o.view === "poslusnik"
+      ? `<div class="banner">Ovako portal izgleda klaki: njeni glasovi i komentari se vide kao uračunati,
+      iako ih javni zbir ne računa. Svaki poslušnik vidi samo svoje — ovde su svi zajedno.</div>`
+      : o.view === "rendgen" && o.xray
+        ? xraySummary(o.xray)
+        : "";
   const sorts = SORTS.map(
     (s) => `<a href="${href(s, 1)}"${s === o.sort ? ' class="on"' : ""}>${s === "najbolji" ? "Najbolji" : "Najnoviji"}</a>`,
   ).join("");
@@ -223,6 +301,7 @@ export function articlePage(o: {
 
   <section id="komentari">
     <h2>Komentari (${esc(o.total)})</h2>
+    ${views}${banner}
     <div class="tools">Poređaj: ${sorts}</div>
     ${list}
     ${pager}
@@ -290,6 +369,20 @@ export function articlePage(o: {
   });
 </script>`,
   });
+}
+
+function xraySummary(x: Xray): string {
+  const c = x.comments;
+  const v = x.votes;
+  const verdicts = x.verdicts.length
+    ? `<ul>${x.verdicts.map((d) => `<li><a href="${esc(d.href)}">${esc(d.label)}</a></li>`).join("")}</ul>`
+    : x.linked
+      ? "<div>Nijedna presuda za prefikse sa ovog članka.</div>"
+      : "<div>Presude iz klaka-api nisu dostupne (nalog portala za UI recenzenta nije podešen).</div>";
+  return `<div class="xsum"><strong>Rendgen:</strong> ${esc(c.total)} komentara — javnih ${esc(c.public)},
+    u shadow-u ${esc(c.shadow)}, naknadno skinuto ${esc(c.retro)}; ${esc(v.total)} glasova — uračunato
+    ${esc(v.public)}, u shadow-u ${esc(v.shadow)}, naknadno skinuto ${esc(v.retro)}.
+    <div style="margin-top:6px">Presude za prefikse sa ovog članka (UI recenzenta):</div>${verdicts}</div>`;
 }
 
 /** Prijava ili registracija; `next` je stranica na koju se vraća. */

@@ -5,6 +5,11 @@
 //   PORT                 (3000)
 //   PORTAL_POSTGRES_URL    baza portala; pravi je ako ne postoji (postgres://…/portal)
 //   PORTAL_CID_SALT        so za `cid` prijavljenih (sdk.md §4); bez nje razvojna vrednost
+//   PORTAL_XRAY            pogledi „Poslušnik" i „Rendgen" (`javno`, podrazumevano) ili `isključen`
+//                          — na javnom serveru otkrivaju presude napadaču (spec README, princip 3)
+//   PORTAL_REVIEW_URL, PORTAL_REVIEW_AUTH   UI recenzenta (klaka-api, /api/presude) i nalog portala
+//                          `ime:token`; bez njih Rendgen bez presuda
+//   PORTAL_REVIEW_PUBLIC_URL  UI recenzenta iz browsera (linkovi sa Rendgena)
 //   KLAKA_PORTAL           (demo.local)
 //   KLAKA_API_URL          klaka-api sa servera, za /v1/keys       (http://localhost:18081)
 //   KLAKA_API_PUBLIC_URL   klaka-api iz browsera, za /v1/view      (= KLAKA_API_URL)
@@ -21,13 +26,14 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 
-import { EventSender, Klaka, cidOf, type Policy } from "@klaka/sdk-node";
+import { EventSender, Klaka, cidOf, netPrefix, type Policy } from "@klaka/sdk-node";
 
 import { checkPassword, hashPassword } from "./auth.js";
 
 import { POSTS, SECTIONS, SEED_COMMENTS } from "./content.js";
-import { Db, type Account, type Comment, type Viewer } from "./db.js";
-import { accountPage, adminPage, articlePage, homePage, sectionPage } from "./page.js";
+import { Db, type Account, type Comment, type Viewer, type VoteStats } from "./db.js";
+import { accountPage, adminPage, articlePage, homePage, sectionPage, VIEWS, type Note, type View, type Xray } from "./page.js";
+import { ReviewClient, type NetVerdict } from "./review.js";
 import { pageOf, PAGE, SORTS, threads, type Sort } from "./thread.js";
 import { valkeyStore } from "./valkey.js";
 
@@ -61,6 +67,12 @@ if (!env.PORTAL_POSTGRES_URL) throw new Error("PORTAL_POSTGRES_URL nije postavlj
 const db = await Db.open(env.PORTAL_POSTGRES_URL);
 // Početni komentari su stariji od svih pravih (sort „najnoviji").
 await db.seed(SEED_COMMENTS, Date.parse("2026-10-01T08:00:00Z"));
+
+const VIEWS_ON = (env.PORTAL_XRAY ?? "javno") !== "isključen";
+const review =
+  env.PORTAL_REVIEW_URL && env.PORTAL_REVIEW_AUTH
+    ? new ReviewClient(env.PORTAL_REVIEW_URL, env.PORTAL_REVIEW_AUTH, env.PORTAL_REVIEW_PUBLIC_URL ?? env.PORTAL_REVIEW_URL, PORTAL)
+    : null;
 
 const CID_SALT = env.PORTAL_CID_SALT || "demo-cid-salt";
 if (!env.PORTAL_CID_SALT) console.warn("PORTAL_CID_SALT nije postavljen — razvojna so za cid");
@@ -137,7 +149,7 @@ async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
     : { decision: "shadow" as const, vid: null, token: "unknown_key" as const, uses: null, repeat: null };
   await db.insertVote({
     t: now, owner: viewer.sid, post: comment.post, comment: comment.id, dir, vid: r.vid, token: r.token, uses: r.uses,
-    repeat: r.repeat, decision: r.decision, retro: false, account: viewer.account,
+    repeat: r.repeat, decision: r.decision, retro: false, account: viewer.account, net: netPrefix(clientIp(req)),
   });
 
   // Isti odgovor za count i shadow (spec README, princip 3).
@@ -171,7 +183,7 @@ async function comment(req: IncomingMessage, res: ServerResponse): Promise<void>
     : { decision: "shadow" as const, token: "unknown_key" as const };
   await db.insertComment({
     id, post: post.id, reply_to: replyTo, author, text, score: 0, t: Date.now(), decision: r.decision, owner: viewer.sid,
-    token: r.token, retro: false, account: viewer.account,
+    token: r.token, retro: false, account: viewer.account, net: netPrefix(clientIp(req)),
   });
 
   // Isti odgovor za count i shadow: autor svoj komentar vidi u oba slučaja.
@@ -216,7 +228,10 @@ async function article(req: IncomingMessage, res: ServerResponse, id: string, ur
   const headers: Record<string, string> = {};
   const viewer = await visitor(req, headers);
   const sort: Sort = SORTS.find((s) => s === url.searchParams.get("sort")) ?? "najbolji";
-  const list = await asSeenBy(await db.visibleComments(post.id, viewer), viewer, post.id);
+  const view: View = (VIEWS_ON && VIEWS.find((v) => v === url.searchParams.get("pogled"))) || "javno";
+  const { list, notes, xray } = view === "javno"
+    ? { list: await asSeenBy(await db.visibleComments(post.id, viewer), viewer, post.id), notes: undefined, xray: undefined }
+    : await revealed(post.id, viewer, view);
   const all = threads(list, sort);
   // Trajni link na komentar (`?komentar=`) otvara stranicu na kojoj je; inače `?strana=`.
   const linked = url.searchParams.get("komentar");
@@ -226,8 +241,83 @@ async function article(req: IncomingMessage, res: ServerResponse, id: string, ur
   send(res, 200, "text/html; charset=utf-8",
     articlePage({
       user: viewer.user, apiPublic: API_PUBLIC, collectorPublic: COLLECTOR_PUBLIC, portal: PORTAL, post, threads: all,
-      total: list.length, sort, page,
+      total: list.length, sort, page, views: VIEWS_ON, view, ...(notes && { notes }), ...(xray && { xray }),
     }), headers);
+}
+
+/**
+ * Pogledi koji pokazuju i tuđe shadow komentare. „Poslušnik": zbir sa svim shadow glasovima —
+ * portal kakav klaka misli da je kupila. „Rendgen": javni zbir, uz stanje svakog komentara,
+ * pokušane glasove i presude prefiksa (klaka-api).
+ */
+async function revealed(post: string, viewer: Viewer, view: View): Promise<{ list: Comment[]; notes: Map<string, Note>; xray?: Xray }> {
+  const [all, stats] = await Promise.all([db.allComments(post), db.voteStats(post)]);
+  const foreign = (c: Comment) => !visible(c, viewer);
+  if (view === "poslusnik") {
+    const shadowed = (id: string) => (stats.get(id)?.shadowSum ?? 0) + (stats.get(id)?.retroSum ?? 0);
+    return {
+      list: all.map((c) => ({ ...c, score: c.score + shadowed(c.id) })),
+      notes: new Map(all.map((c) => [c.id, { foreign: foreign(c), badges: [] }])),
+    };
+  }
+  const [voteNets, firstSeen] = await Promise.all([db.voteNets(post), db.netsFirstSeen(post)]);
+  const found = review ? await review.verdicts([...firstSeen.keys()]) : new Map<string, NetVerdict>();
+  // Samo presude o akcijama sa ovog članka: nastale posle prve akcije prefiksa ovde, uz prozor
+  // naknadnog shadow-a. Starija presuda je o nekom ranijem korisniku istog prefiksa.
+  const verdicts = new Map(
+    [...found].filter(([net, v]) => v.created_ms >= (firstSeen.get(net) ?? Infinity) - RELEVANT_BEFORE_MS),
+  );
+  const fromVerdict = new Map<string, number>();
+  for (const v of voteNets) if (verdicts.has(v.net)) fromVerdict.set(v.comment, (fromVerdict.get(v.comment) ?? 0) + v.n);
+  const notes = new Map(all.map((c) => [c.id, xrayNote(c, stats.get(c.id), verdicts, fromVerdict.get(c.id) ?? 0, foreign(c))]));
+  const sum = (f: (s: VoteStats) => number) => [...stats.values()].reduce((a, s) => a + f(s), 0);
+  const xray: Xray = {
+    comments: {
+      total: all.length,
+      public: all.filter((c) => c.decision === "count").length,
+      shadow: all.filter((c) => c.decision === "shadow" && !c.retro).length,
+      retro: all.filter((c) => c.retro).length,
+    },
+    votes: {
+      total: sum((s) => s.count + s.shadow + s.retro),
+      public: sum((s) => s.count),
+      shadow: sum((s) => s.shadow),
+      retro: sum((s) => s.retro),
+    },
+    verdicts: [...new Map([...verdicts.values()].map((v) => [v.id, v])).values()]
+      .sort((a, b) => b.id - a.id)
+      .slice(0, 20)
+      .map((v) => ({ label: verdictLabel(v, `#${v.id} ${v.net}`), href: review!.link(v.href) })),
+    linked: review !== null,
+  };
+  return { list: all, notes, xray };
+}
+
+/** Presuda do ovoliko pre prve akcije prefiksa na članku još je o njoj (prozor naknadnog shadow-a). */
+const RELEVANT_BEFORE_MS = 10 * 60 * 1000;
+
+function verdictLabel(v: NetVerdict, head: string): string {
+  const state = v.decision === "reject" ? " · odbačena" : v.decision === "confirm" ? " · potvrđena" : "";
+  return `${head} · ${v.detectors}${v.roles ? ` · ${v.roles}` : ""}${state}${v.active ? "" : " · istekla"}`;
+}
+
+function xrayNote(c: Comment, s: VoteStats | undefined, verdicts: Map<string, NetVerdict>, fromVerdict: number, foreign: boolean): Note {
+  const badges: Note["badges"] = [];
+  if (c.retro) badges.push({ text: "naknadno skinut posle presude", kind: "retro" });
+  else if (c.decision === "shadow") {
+    const why = c.token && c.token !== "valid" ? ` (token: ${c.token})` : "";
+    badges.push({ text: `u shadow-u${why} — vidi ga samo autor`, kind: "shadow" });
+  }
+  const v = c.net ? verdicts.get(c.net) : undefined;
+  if (v) badges.push({ text: verdictLabel(v, `prefiks autora: presuda #${v.id}`), kind: "verdict", href: review!.link(v.href) });
+  const parts: string[] = [];
+  if (s && s.shadow + s.retro > 0) {
+    const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
+    parts.push(`javni zbir ${c.score}`, `u shadow-u ${s.shadow} glasova (${signed(s.shadowSum)})`);
+    if (s.retro) parts.push(`naknadno skinuto ${s.retro} (${signed(s.retroSum)})`);
+  }
+  if (fromVerdict) parts.push(`iz prefiksa sa presudom ${fromVerdict} glasova`);
+  return { foreign, badges, ...(parts.length && { line: parts.join(" · ") }) };
 }
 
 async function publicComments(req: IncomingMessage, post: string | null): Promise<object[]> {

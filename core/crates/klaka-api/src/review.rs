@@ -29,6 +29,8 @@ pub struct Review {
     pub valkey: redis::Client,
     /// Recenzenti: (ime, token).
     pub reviewers: Vec<(String, String)>,
+    /// Javne adrese portala (portal → `http://…`): sa presude link na komentar u portalu.
+    pub portals: BTreeMap<String, String>,
 }
 
 pub fn router(review: Review) -> Router {
@@ -39,6 +41,7 @@ pub fn router(review: Review) -> Router {
         .route("/presude/{id}/odluka", post(decide))
         .route("/kohorte/{id}", get(cohort_page))
         .route("/kohorte/{id}/odluka", post(decide_cohort))
+        .route("/api/presude", get(verdicts_api))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
 }
@@ -418,6 +421,112 @@ fn detector_names(joined: &str) -> String {
         .join(", ")
 }
 
+/// Komentar u portalu, u pogledu „Rendgen" (trajni link `?komentar=`); prazno bez adrese portala.
+fn portal_link(
+    portals: &BTreeMap<String, String>,
+    portal: &str,
+    post: &str,
+    comment: &str,
+) -> String {
+    match portals.get(portal) {
+        Some(base) if !comment.is_empty() => format!(
+            "{}/p/{}?komentar={}&pogled=rendgen#{}",
+            base.trim_end_matches('/'),
+            urlencoding(post),
+            urlencoding(comment),
+            urlencoding(comment)
+        ),
+        _ => String::new(),
+    }
+}
+
+/// Procenat-kodiranje za deo adrese (ID-jevi su ionako ASCII, ali ne veruje im se).
+fn urlencoding(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+// --- API za portal (pogled „Rendgen") --------------------------------------------------------
+
+#[derive(Deserialize)]
+struct VerdictsQuery {
+    portal: String,
+    /// Prefiksi, odvojeni zarezom.
+    nets: String,
+}
+
+/// Najviše prefiksa u jednom upitu.
+const API_NETS: usize = 500;
+
+#[derive(sqlx::FromRow)]
+struct ApiVerdict {
+    id: i64,
+    net: String,
+    detector: String,
+    cohort: Option<i64>,
+    active: bool,
+    created: String,
+    created_ms: i64,
+    roles: Option<String>,
+    decision: Option<String>,
+}
+
+/// Poslednja presuda `shadow` po prefiksu: za Rendgen u portalu (šta je Klaka prepoznala).
+/// Samo prijavljenom (recenzent ili nalog portala) — to su razlozi presude, koje Valkey namerno
+/// nema (verdicts.md §2).
+async fn verdicts_api(
+    State(review): State<Arc<Review>>,
+    Query(q): Query<VerdictsQuery>,
+) -> Result<Response, Failure> {
+    let nets: Vec<String> = q
+        .nets
+        .split(',')
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .take(API_NETS)
+        .map(str::to_owned)
+        .collect();
+    let rows: Vec<ApiVerdict> = sqlx::query_as(
+        "SELECT DISTINCT ON (v.key) v.id, v.key AS net, v.detector, v.cohort,
+                v.until_ms > (extract(epoch FROM now()) * 1000)::bigint AS active,
+                to_char(v.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS created,
+                (extract(epoch FROM v.created_at) * 1000)::bigint AS created_ms,
+                (SELECT string_agg(r, ', ') FROM jsonb_array_elements_text(s.role->'uloge') r) AS roles,
+                d.decision
+         FROM verdicts v
+         LEFT JOIN cohort_summary s ON s.verdict_id = v.id
+         LEFT JOIN LATERAL (
+             SELECT decision FROM verdict_review
+             WHERE verdict_id = v.id ORDER BY decided_at DESC LIMIT 1
+         ) d ON true
+         WHERE v.portal = $1 AND v.key_kind = 'net' AND v.action = 'shadow' AND v.key = ANY($2)
+         ORDER BY v.key, v.created_at DESC",
+    )
+    .bind(&q.portal)
+    .bind(&nets)
+    .fetch_all(&review.pool)
+    .await
+    .map_err(db)?;
+    let out: Vec<Value> = rows
+        .into_iter()
+        .map(|v| {
+            serde_json::json!({
+                "id": v.id, "net": v.net, "detectors": detector_names(&v.detector), "cohort": v.cohort,
+                "active": v.active, "created": v.created, "created_ms": v.created_ms, "roles": v.roles,
+                "decision": v.decision,
+                "href": format!("/presude/{}", v.id),
+            })
+        })
+        .collect();
+    Ok(axum::Json(out).into_response())
+}
+
 // --- detalj presude ---------------------------------------------------------------------------
 
 struct Cohort {
@@ -432,6 +541,8 @@ struct CommentRow {
     text: String,
     decision: String,
     retro: bool,
+    /// Komentar u portalu, u pogledu „Rendgen"; prazno kad adresa portala nije podešena.
+    href: String,
 }
 
 struct VoteRow {
@@ -537,13 +648,14 @@ async fn detail(
     .map_err(db)?;
 
     // Prozor dokaza: `window_s` pre presude.
-    let comments: Vec<(String, String, String, String, String, bool)> = sqlx::query_as(
+    let comments: Vec<(String, String, String, String, String, bool, String)> = sqlx::query_as(
         "WITH v AS (SELECT portal, key, created_at FROM verdicts WHERE id = $1)
          SELECT to_char(e.recv_at AT TIME ZONE 'UTC', 'HH24:MI:SS'), e.post,
                 coalesce(e.data->>'author', ''), coalesce(e.data->>'text', ''),
                 coalesce(e.data->>'decision', ''),
                 EXISTS (SELECT 1 FROM verdict_retro r
-                        WHERE r.verdict_id = $1 AND r.comment = e.data->>'comment')
+                        WHERE r.verdict_id = $1 AND r.comment = e.data->>'comment'),
+                coalesce(e.data->>'comment', '')
          FROM events e, v
          WHERE e.portal = v.portal AND e.net = v.key AND e.type = 'comment' AND e.source = 'server'
            AND e.recv_at > v.created_at - make_interval(secs => $2) AND e.recv_at <= v.created_at
@@ -635,6 +747,20 @@ async fn detail(
         .as_array()
         .map(|cs| cs.iter().map(cohort).collect())
         .unwrap_or_default();
+    let comments: Vec<CommentRow> = comments
+        .into_iter()
+        .map(
+            |(at, post, author, text, decision, retro, comment)| CommentRow {
+                href: portal_link(&review.portals, &portal, &post, &comment),
+                at,
+                post,
+                author,
+                text,
+                decision,
+                retro,
+            },
+        )
+        .collect();
     page(Detail {
         reviewer,
         id,
@@ -649,17 +775,7 @@ async fn detail(
         cohorts,
         retro_comments,
         retro_votes,
-        comments: comments
-            .into_iter()
-            .map(|(at, post, author, text, decision, retro)| CommentRow {
-                at,
-                post,
-                author,
-                text,
-                decision,
-                retro,
-            })
-            .collect(),
+        comments,
         votes: votes
             .into_iter()
             .map(|(post, target, dir, votes)| VoteRow {

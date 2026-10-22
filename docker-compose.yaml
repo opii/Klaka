@@ -107,6 +107,8 @@ services:
       KLAKA_SIGNING_SEED: ${KLAKA_SIGNING_SEED:-}
       # Bez recenzenata nema UI-ja recenzenta.
       KLAKA_REVIEW_TOKENS: ${KLAKA_REVIEW_TOKENS:-}
+      # Sa presude link na komentar u portalu (pogled „Rendgen").
+      KLAKA_PORTAL_LINKS: ${KLAKA_PORTAL_LINKS:-demo.local=http://localhost:18082}
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
 
@@ -137,6 +139,13 @@ services:
       KLAKA_API_KEY: ${KLAKA_DEMO_API_KEY:-dev-api-key}
       # Baza portala, odvojena od Klakine (ista instanca); demo je napravi ako ne postoji.
       PORTAL_POSTGRES_URL: postgres://${POSTGRES_USER:-klaka}:${POSTGRES_PASSWORD:-klaka-dev}@postgres:5432/portal
+      PORTAL_CID_SALT: ${PORTAL_CID_SALT:-}
+      # Pogledi „Poslušnik" i „Rendgen" (javno | isključen); presude za Rendgen iz UI-ja recenzenta,
+      # pod nalogom portala iz KLAKA_REVIEW_TOKENS (PORTAL_REVIEW_AUTH=ime:token).
+      PORTAL_XRAY: ${PORTAL_XRAY:-javno}
+      PORTAL_REVIEW_URL: http://klaka-api:8083
+      PORTAL_REVIEW_AUTH: ${PORTAL_REVIEW_AUTH:-}
+      PORTAL_REVIEW_PUBLIC_URL: http://localhost:${REVIEW_PORT:-18083}
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
     ports: ["127.0.0.1:${DEMO_PORT:-18082}:3000"]

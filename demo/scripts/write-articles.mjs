@@ -66,23 +66,50 @@ bez političkog stava i bez ocena — samo šta se dešava, kada, gde i kako uti
 const prompt = (section, topic) => `Napiši vest za rubriku „${section}" na temu: ${topic}.
 - title: naslov vesti, do 12 reči, u rečeničnom obliku (veliko samo prvo slovo i imena);
 - lead: jedna rečenica koja sažima vest;
-- paragraphs: 6 pasusa po 3–4 rečenice (detalji, rokovi, ko je nadležan, šta kažu građani);
+- paragraphs: 6 pasusa, svaki 50–70 reči (detalji, rokovi, ko je nadležan, šta kažu građani) —
+  ukupno oko 350 reči;
 - comments: 5 komentara čitalaca ispod vesti, različitih stavova, dužina i tona (neko se slaže,
   neko sumnja, neko pita, neko dodaje iskustvo iz kraja); autor iz zadate liste, svaki komentar
   od drugog autora; reply_to je redni broj (od 0) komentara na koji se odgovara ili null —
   najviše dva odgovora.`;
 
-async function write(id, section, topic) {
+/**
+ * Odgovor modela kao stream (NDJSON): zaglavlje stiže odmah, pa nema roka čekanja zaglavlja
+ * (undici: 300 s), a dug članak na CPU-u traje i duže od toga.
+ */
+async function chat(section, topic) {
   const res = await fetch(`${OLLAMA}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: MODEL, stream: false, format: SCHEMA, options: { temperature: 0.7 },
+      model: MODEL, stream: true, format: SCHEMA, options: { temperature: 0.7 },
       messages: [{ role: "system", content: SYSTEM }, { role: "user", content: prompt(section, topic) }],
     }),
   });
-  if (!res.ok) throw new Error(`${id}: HTTP ${res.status}`);
-  const a = JSON.parse((await res.json()).message.content);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  let text = "";
+  let rest = "";
+  for await (const chunk of res.body) {
+    rest += Buffer.from(chunk).toString("utf8");
+    const lines = rest.split("\n");
+    rest = lines.pop();
+    for (const line of lines.filter(Boolean)) text += JSON.parse(line).message?.content ?? "";
+  }
+  if (rest.trim()) text += JSON.parse(rest).message?.content ?? "";
+  return JSON.parse(text);
+}
+
+async function write(id, section, topic) {
+  let a;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      a = await chat(section, topic);
+      break;
+    } catch (e) {
+      if (attempt >= 2) throw new Error(`${id}: ${e.message}`);
+      console.warn(`${id}: ${e.message}, ponovo`);
+    }
+  }
   // Odgovor samo na raniji komentar istog članka.
   const comments = a.comments.map((c, i) => ({
     author: c.author, text: c.text.trim(),

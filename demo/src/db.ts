@@ -29,6 +29,20 @@ export interface Comment {
   retro: boolean;
   /** Nalog autora; `null` za anonimni komentar (pseudonim uz komentar). */
   account: number | null;
+  /** Mrežni prefiks autora (/24, /48); `null` za početne i stare komentare. */
+  net: string | null;
+}
+
+/** Glasovi za komentar po odluci (pogledi „Poslušnik" i „Rendgen"). */
+export interface VoteStats {
+  /** Uračunati (javni zbir). */
+  count: number;
+  /** U shadow-u u trenutku glasa: broj i zbir smerova. */
+  shadow: number;
+  shadowSum: number;
+  /** Uračunati, pa naknadno skinuti posle presude. */
+  retro: number;
+  retroSum: number;
 }
 
 /** Ko gleda: kolačić sesije i nalog, ako je prijavljen. */
@@ -56,6 +70,7 @@ export interface Vote {
   decision: Decision;
   retro: boolean;
   account: number | null;
+  net: string | null;
 }
 
 const MIGRATIONS = new URL("../migrations/", import.meta.url);
@@ -111,9 +126,9 @@ export class Db {
 
   async insertComment(c: Comment): Promise<void> {
     await this.pool.query(
-      `INSERT INTO comments (id, post, reply_to, author, text, t, decision, owner, token, account)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [c.id, c.post, c.reply_to, c.author, c.text, c.t, c.decision, c.owner, c.token, c.account],
+      `INSERT INTO comments (id, post, reply_to, author, text, t, decision, owner, token, account, net)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [c.id, c.post, c.reply_to, c.author, c.text, c.t, c.decision, c.owner, c.token, c.account, c.net],
     );
   }
 
@@ -134,6 +149,56 @@ export class Db {
       [post, viewer.sid, viewer.account],
     );
     return r.rows.map(toComment);
+  }
+
+  /** Svi komentari posta, i tuđi shadow — samo za poglede „Poslušnik" i „Rendgen". */
+  async allComments(post: string): Promise<Comment[]> {
+    const r = await this.pool.query(`SELECT ${COMMENT} FROM comments WHERE post = $1 ORDER BY t, id`, [post]);
+    return r.rows.map(toComment);
+  }
+
+  /** Glasovi po komentaru posta, po odluci. */
+  async voteStats(post: string): Promise<Map<string, VoteStats>> {
+    const r = await this.pool.query<{ comment: string; decision: Decision; retro: boolean; n: string; d: string }>(
+      `SELECT comment, decision, retro, count(*) AS n, sum(dir) AS d FROM votes WHERE post = $1
+       GROUP BY 1, 2, 3`,
+      [post],
+    );
+    const out = new Map<string, VoteStats>();
+    for (const x of r.rows) {
+      const s = out.get(x.comment) ?? { count: 0, shadow: 0, shadowSum: 0, retro: 0, retroSum: 0 };
+      if (x.decision === "count") s.count += Number(x.n);
+      else if (x.retro) {
+        s.retro += Number(x.n);
+        s.retroSum += Number(x.d);
+      } else {
+        s.shadow += Number(x.n);
+        s.shadowSum += Number(x.d);
+      }
+      out.set(x.comment, s);
+    }
+    return out;
+  }
+
+  /** Glasovi po (komentar, prefiks) — koliko je glasova stiglo iz prefiksa sa presudom. */
+  async voteNets(post: string): Promise<{ comment: string; net: string; n: number }[]> {
+    const r = await this.pool.query<{ comment: string; net: string; n: string }>(
+      "SELECT comment, net, count(*) AS n FROM votes WHERE post = $1 AND net IS NOT NULL GROUP BY 1, 2",
+      [post],
+    );
+    return r.rows.map((x) => ({ ...x, n: Number(x.n) }));
+  }
+
+  /** Prva akcija svakog prefiksa na postu (ms): presuda pre nje ne govori o ovom članku. */
+  async netsFirstSeen(post: string): Promise<Map<string, number>> {
+    const r = await this.pool.query<{ net: string; t: string }>(
+      `SELECT net, min(t) AS t FROM (
+           SELECT net, t FROM votes WHERE post = $1 AND net IS NOT NULL
+           UNION ALL SELECT net, t FROM comments WHERE post = $1 AND net IS NOT NULL
+       ) x GROUP BY net`,
+      [post],
+    );
+    return new Map(r.rows.map((x) => [x.net, Number(x.t)]));
   }
 
   /** Javni komentari po postu (za naslovnu i rubrike). */
@@ -161,9 +226,9 @@ export class Db {
     try {
       await client.query("BEGIN");
       await client.query(
-        `INSERT INTO votes (t, owner, post, comment, dir, vid, token, uses, repeat, decision, account)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [v.t, v.owner, v.post, v.comment, v.dir, v.vid, v.token, v.uses, v.repeat, v.decision, v.account],
+        `INSERT INTO votes (t, owner, post, comment, dir, vid, token, uses, repeat, decision, account, net)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [v.t, v.owner, v.post, v.comment, v.dir, v.vid, v.token, v.uses, v.repeat, v.decision, v.account, v.net],
       );
       if (v.decision === "count") {
         await client.query("UPDATE comments SET score = score + $2 WHERE id = $1", [v.comment, v.dir]);
@@ -203,7 +268,7 @@ export class Db {
 
   async lastVotes(limit: number): Promise<Vote[]> {
     const r = await this.pool.query(
-      `SELECT * FROM (SELECT t, owner, post, comment, dir, vid, token, uses, repeat, decision, retro, account
+      `SELECT * FROM (SELECT t, owner, post, comment, dir, vid, token, uses, repeat, decision, retro, account, net
                       FROM votes ORDER BY id DESC LIMIT $1) x ORDER BY t`,
       [limit],
     );
@@ -300,7 +365,7 @@ export class Db {
   }
 }
 
-const COMMENT = "id, post, reply_to, author, text, score, t, decision, owner, token, retro, account";
+const COMMENT = "id, post, reply_to, author, text, score, t, decision, owner, token, retro, account, net";
 
 function toComment(r: Record<string, unknown>): Comment {
   return { ...(r as unknown as Comment), t: Number(r.t), account: r.account === null ? null : Number(r.account) };

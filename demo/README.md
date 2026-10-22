@@ -22,7 +22,7 @@ hiljade. Zbir je onaj koji vidi posetilac, pa poslušnik vidi svoj gurnut koment
 
 ```bash
 docker compose up -d --build demo     # http://localhost:18082  (+ /admin)
-docker compose run --rm e2e           # 9 testova u pravom browseru (Chromium)
+docker compose run --rm e2e           # 10 testova u pravom browseru (Chromium)
 ```
 
 | Šta pokazuje | Ishod |
@@ -47,6 +47,24 @@ komentar), a nalog (`/registracija`, `/prijava`, `/odjava`) daje stalan pseudoni
 Registrovan pseudonim anonimni komentator ne može da koristi. Lozinke: `scrypt` sa solju po
 nalogu; prijava menja kolačić sesije (zaštita od fiksiranja), a anonimne akcije sa uređaja prelaze
 na novi kolačić.
+
+Pogledi na komentare (`?pogled=`, prekidač iznad komentara; `PORTAL_XRAY=isključen` ih gasi —
+na javnom serveru otkrivaju presude napadaču):
+
+| Pogled | Šta pokazuje |
+| --- | --- |
+| Javno | ono što vidi svako: javni zbir, javni komentari i svoji shadow |
+| Pogled poslušnika | portal kakav klaka misli da je kupila: i tuđi shadow komentari, zbir sa svim shadow glasovima (svaki poslušnik inače vidi samo svoje) |
+| Rendgen | šta je Klaka prepoznala: stanje svakog komentara (u shadow-u i zašto, naknadno skinut), javni zbir naspram glasova u shadow-u i naknadno skinutih, glasovi iz prefiksa sa presudom, presude i uloge kohorti — sa linkovima na UI recenzenta (:18083) |
+
+Rendgen presude čita iz `klaka-api` (`/api/presude` na listener-u recenzenta), pod nalogom
+portala (`PORTAL_REVIEW_AUTH=ime:token`, isti par kao jedan unos u `KLAKA_REVIEW_TOKENS`); bez
+njega pokazuje samo ono što portal sam zna. Prikazuje samo presude nastale posle prve akcije
+prefiksa na članku (uz prozor naknadnog shadow-a) — starija je o nekom ranijem korisniku istog
+prefiksa. Portal zato uz svaku akciju pamti prefiks (/24, /48), nikad pun IP. U obrnutom smeru,
+presuda u UI-ju recenzenta vodi na komentar u portalu, u Rendgenu (`KLAKA_PORTAL_LINKS`). Tuđ
+shadow komentar je u ovim pogledima bez glasanja i bez `data-klaka-comment`, da posetilac
+Rendgena ne puni `seen` komentarima koje inače ne vidi.
 
 `shadow` komentar vidi samo njegov autor — sa istog uređaja (kolačić `demo_sid`) ili, prijavljen,
 sa svog naloga; za ostale ne postoji — ni na stranici, ni u `/api/comments`, ni za glas, ni kao
