@@ -146,6 +146,11 @@ services:
       PORTAL_REVIEW_URL: http://klaka-api:8083
       PORTAL_REVIEW_AUTH: ${PORTAL_REVIEW_AUTH:-}
       PORTAL_REVIEW_PUBLIC_URL: http://localhost:${REVIEW_PORT:-18083}
+      # Panel napada (/admin/napadi): admin lozinka i caci servis (caci-panel) iz browsera admina.
+      # Bez lozinke panel je isključen — i tako ostaje na javnom serveru.
+      PORTAL_ADMIN_PASSWORD: ${PORTAL_ADMIN_PASSWORD:-}
+      PORTAL_CACI_URL: http://localhost:${CACI_PANEL_PORT:-18095}
+      PORTAL_CACI_TOKEN: ${CACI_PANEL_TOKEN:-}
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
     ports: ["127.0.0.1:${DEMO_PORT:-18082}:3000"]
@@ -170,19 +175,21 @@ services:
       BASE_URL: http://localhost:${DEMO_PORT:-18082}
       npm_config_cache: /work/.npm-docker
       HOME: /tmp
+      # Panel napada (e2e/panel.spec.ts); bez lozinke se test preskače.
+      PORTAL_ADMIN_PASSWORD: ${PORTAL_ADMIN_PASSWORD:-}
     command: ["sh", "-c", "npm ci --no-audit --no-fund && npx playwright test"]
 
   # Emulator klake (caci/, docs/caci.md): docker compose run --rm caci run profiles/rafal-0.json
   # Mreža hosta, kao e2e: browser (nivoi 2+) vidi iste adrese kao korisnik — snippet na
   # stranici zove klaka-api i collector na localhost portovima.
-  caci:
+  caci: &caci
     profiles: [tools]
     <<: *dev-user
     image: mcr.microsoft.com/playwright:v1.64.1-noble
     network_mode: host
     working_dir: /work/caci
     volumes: [".:/work"]
-    environment:
+    environment: &caci-env
       npm_config_cache: /work/.npm-docker
       HOME: /tmp
       CACI_PORTAL_URL: http://localhost:${DEMO_PORT:-18082}
@@ -195,6 +202,21 @@ services:
     entrypoint: ["sh", "-c", "npm ci --no-audit --no-fund --silent && npm run -s build && node dist/src/index.js \"$$@\"", "caci"]
     depends_on:
       demo: { condition: service_started }
+
+  # Panel napada (portal /admin/napadi): caci kao HTTP servis, samo na 127.0.0.1 hosta. Admin ga
+  # zove iz browsera, uz token. Namerno van podrazumevanog `up` (emulator napada nije javan servis):
+  #   docker compose --profile napadi up -d caci-panel
+  # Deli caci/node_modules sa `caci` iz komandne linije: ne pokretati ih istovremeno pri startu.
+  caci-panel:
+    <<: *caci
+    profiles: [napadi]
+    environment:
+      <<: *caci-env
+      CACI_PANEL_ADDR: 127.0.0.1:${CACI_PANEL_PORT:-18095}
+      CACI_PANEL_TOKEN: ${CACI_PANEL_TOKEN:-}
+      CACI_PANEL_ORIGIN: http://localhost:${DEMO_PORT:-18082}
+    entrypoint: ["sh", "-c", "npm ci --no-audit --no-fund --silent && npm run -s build && exec node dist/src/index.js serve"]
+    restart: unless-stopped
 
   rust:
     profiles: [tools]

@@ -100,13 +100,22 @@ const PARAPHRASE_PARALLEL = 4;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)]!;
 
+/** Praćenje izvođenja (panel, `caci serve`): dnevnik se puni dok kampanja traje. */
+export interface RunHooks {
+  /** Dnevnik je napravljen (pre pripreme tekstova). */
+  created?(log: RunLog): void;
+  /** Tekstovi su spremni, poslušnici i publika kreću (`log.started_ms`). */
+  started?(log: RunLog): void;
+}
+
 export async function run(
-  profile: Profile, target: Target, avoid: ReadonlySet<string> = new Set(), writer?: Writer,
+  profile: Profile, target: Target, avoid: ReadonlySet<string> = new Set(), writer?: Writer, hooks: RunHooks = {},
 ): Promise<RunLog> {
   const runId = `${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}-${randomBytes(3).toString("hex")}`;
   const log: RunLog = {
     run: runId, profile, portal: target.portal, started_ms: 0, ended_ms: 0, actions: [], comments: [], skipped: 0,
   };
+  hooks.created?.(log);
   const ctx: Ctx = { profile, target, log, fellows: new Map(), readerTexts: new Map() };
   const nets = new Prefixes(Math.random, avoid);
   const comments = await fetchComments(target);
@@ -126,6 +135,7 @@ export async function run(
   // Nivoi 2–4: jedan Chromium, poseban kontekst (kolačići, adresa) po poslušniku.
   const browser = profile.level >= 2 ? await chromium.launch() : null;
   log.started_ms = Date.now();
+  hooks.started?.(log);
   const tasks: Promise<void>[] = [];
 
   for (const side of sides) {

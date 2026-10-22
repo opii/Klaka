@@ -10,6 +10,8 @@
 //   PORTAL_REVIEW_URL, PORTAL_REVIEW_AUTH   UI recenzenta (klaka-api, /api/presude) i nalog portala
 //                          `ime:token`; bez njih Rendgen bez presuda
 //   PORTAL_REVIEW_PUBLIC_URL  UI recenzenta iz browsera (linkovi sa Rendgena)
+//   PORTAL_ADMIN_PASSWORD  panel napada (/admin/napadi, korisnik admin); bez nje panel isključen
+//   PORTAL_CACI_URL, PORTAL_CACI_TOKEN   caci servis (caci-panel) iz browsera admina
 //   KLAKA_PORTAL           (demo.local)
 //   KLAKA_API_URL          klaka-api sa servera, za /v1/keys       (http://localhost:18081)
 //   KLAKA_API_PUBLIC_URL   klaka-api iz browsera, za /v1/view      (= KLAKA_API_URL)
@@ -22,7 +24,7 @@
 //                            x-forwarded-for, važi poslednja vrednost). SAMO za test okruženje:
 //                            ovako emulator ćacija (caci/) dodeljuje adrese.
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 
@@ -32,7 +34,9 @@ import { checkPassword, hashPassword } from "./auth.js";
 
 import { POSTS, SECTIONS, SEED_COMMENTS } from "./content.js";
 import { Db, type Account, type Comment, type Viewer, type VoteStats } from "./db.js";
-import { accountPage, adminPage, articlePage, homePage, sectionPage, VIEWS, type Note, type View, type Xray } from "./page.js";
+import {
+  accountPage, adminPage, articlePage, attacksPage, homePage, sectionPage, VIEWS, type Note, type View, type Xray,
+} from "./page.js";
 import { ReviewClient, type NetVerdict } from "./review.js";
 import { pageOf, PAGE, SORTS, threads, type Sort } from "./thread.js";
 import { valkeyStore } from "./valkey.js";
@@ -377,6 +381,8 @@ const server = createServer((req, res) => {
           return admin(url, res, "comments");
         case "POST /admin/promote":
           return promote(req, res);
+        case "GET /admin/napadi":
+          return attacks(req, res);
         case "GET /healthz":
           return send(res, 200, "text/plain", "ok");
         default:
@@ -388,6 +394,32 @@ const server = createServer((req, res) => {
       if (!res.headersSent) send(res, 500, "text/plain", "greška");
     });
 });
+
+/** Admin (panel napada): HTTP Basic, korisnik `admin` i `PORTAL_ADMIN_PASSWORD`. */
+function adminOk(req: IncomingMessage): boolean {
+  const pass = env.PORTAL_ADMIN_PASSWORD ?? "";
+  const header = req.headers.authorization ?? "";
+  if (!pass || !header.startsWith("Basic ")) return false;
+  const given = Buffer.from(Buffer.from(header.slice(6), "base64").toString("utf8"));
+  const want = Buffer.from(`admin:${pass}`);
+  return given.length === want.length && timingSafeEqual(given, want);
+}
+
+function attacks(req: IncomingMessage, res: ServerResponse): void {
+  if (!env.PORTAL_ADMIN_PASSWORD || !env.PORTAL_CACI_TOKEN) {
+    return send(res, 404, "text/plain; charset=utf-8", "panel napada je isključen (PORTAL_ADMIN_PASSWORD, CACI_PANEL_TOKEN)");
+  }
+  if (!adminOk(req)) {
+    return send(res, 401, "text/plain; charset=utf-8", "prijava admina", { "WWW-Authenticate": 'Basic realm="portal admin", charset="UTF-8"' });
+  }
+  send(res, 200, "text/html; charset=utf-8", attacksPage({
+    portal: PORTAL,
+    caciUrl: env.PORTAL_CACI_URL ?? "http://localhost:18095",
+    caciToken: env.PORTAL_CACI_TOKEN,
+    reviewUrl: env.PORTAL_REVIEW_PUBLIC_URL ?? "http://localhost:18083",
+    posts: POSTS,
+  }));
+}
 
 async function home(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const headers: Record<string, string> = {};

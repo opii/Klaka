@@ -406,6 +406,106 @@ export function accountPage(o: { portal: string; user: User; mode: "prijava" | "
   });
 }
 
+/**
+ * Panel napada: caci profili, pokretanje, tok uživo i izveštaj. Stranica je iza admin lozinke;
+ * caci servis zove browser admina (token ide samo njemu), pa portal ne dopire do hosta.
+ */
+export function attacksPage(o: { portal: string; caciUrl: string; caciToken: string; reviewUrl: string; posts: Post[] }): string {
+  const push = o.posts
+    .slice(0, 8)
+    .map((p) => `<button type="button" data-push="${esc(p.id)}">push: ${esc(p.id)}</button>`)
+    .join(" ");
+  const rendgen = o.posts
+    .slice(0, 8)
+    .map((p) => `<a href="/p/${esc(p.id)}?pogled=rendgen#komentari">${esc(p.id)}</a>`)
+    .join(" · ");
+  return layout({
+    portal: o.portal,
+    user: null,
+    title: "Napadi — panel",
+    wide: true,
+    body: `<div class="kicker">Samo za demo · emulator klake (caci)</div>
+<h1>Napadi</h1>
+<p class="meta">Kampanja ide protiv ovog portala, uz legitimnu publiku. Reakciju Klake prati uživo ispod,
+u pogledu Rendgen (${rendgen}) i u <a href="${esc(o.reviewUrl)}">UI-ju recenzenta</a>.</p>
+<div id="napad" style="display:grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 24px">
+  <div>
+    <label>Profil <select name="profile"></select></label>
+    <p class="meta" data-desc></p>
+    <p><button type="button" data-start>Pokreni</button></p>
+    <p class="meta">Legitiman blizanac: portal javlja promociju (push) za članak —</p>
+    <p>${push}</p>
+    <p class="err" data-error hidden></p>
+  </div>
+  <div>
+    <div class="xsum" data-state>caci servis: povezivanje…</div>
+    <h2 class="block">Presude engine-a</h2>
+    <ul class="list" data-verdicts><li class="meta">još nijedna</li></ul>
+    <h2 class="block">Izveštaj</h2>
+    <pre data-report style="white-space: pre-wrap; font-size: 12px">—</pre>
+  </div>
+</div>
+<script>
+  const CACI = ${JSON.stringify(o.caciUrl)};
+  const TOKEN = ${JSON.stringify(o.caciToken)};
+  const $ = (q) => document.querySelector(q);
+  const auth = { Authorization: "Bearer " + TOKEN };
+  const fail = (m) => { const e = $("[data-error]"); e.textContent = m; e.hidden = !m; };
+  let list = [];
+
+  fetch(CACI + "/profiles", { headers: auth })
+    .then((r) => r.json())
+    .then((ps) => {
+      list = ps;
+      $("select").innerHTML = ps.map((p) => '<option value="' + p.name + '">' + p.name + " (nivo " + p.level + ")</option>").join("");
+      describe();
+    })
+    .catch(() => fail("caci servis nije dostupan: docker compose --profile napadi up -d caci-panel"));
+  $("select").addEventListener("change", describe);
+  function describe() {
+    const p = list.find((x) => x.name === $("select").value);
+    if (!p) return;
+    const roles = Object.entries(p.roles).map(([k, n]) => n + " " + k).join(", ") || "samo publika";
+    $("[data-desc]").textContent = roles + "; " + p.votes + " glasova i " + p.comments + " komentara po poslušniku"
+      + (p.mirror ? "; ogledalo" : "") + (p.paraphrase ? "; parafraze" : "") + (p.push ? "; push blizanac" : "")
+      + (p.description ? " — " + p.description : "");
+  }
+
+  $("[data-start]").addEventListener("click", async () => {
+    fail("");
+    const res = await fetch(CACI + "/runs", { method: "POST", headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ profile: $("select").value }) });
+    if (!res.ok) fail((await res.json().catch(() => ({}))).error || "nije pokrenuto");
+  });
+
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-push]");
+    if (!b) return;
+    const res = await fetch("/admin/promote", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post: b.dataset.push, channel: "push" }) });
+    b.textContent = (res.ok ? "✓ " : "✗ ") + "push: " + b.dataset.push;
+  });
+
+  const NAMES = { priprema: "priprema", tekstovi: "tekstovi iz lokalnog LLM-a", kampanja: "kampanja traje",
+    "izveštaj": "izveštaj iz baze", gotovo: "gotovo", "greška": "greška" };
+  const events = new EventSource(CACI + "/events?token=" + encodeURIComponent(TOKEN));
+  events.onerror = () => { $("[data-state]").textContent = "caci servis nije dostupan (ponovo za par sekundi)"; };
+  events.onmessage = (m) => {
+    const s = JSON.parse(m.data);
+    if (!s.phase) { $("[data-state]").textContent = "caci servis spreman — nijedno izvođenje još"; return; }
+    $("[data-state]").textContent = s.profile + " · " + (NAMES[s.phase] || s.phase) + " · " + s.elapsed_s + " s · "
+      + s.votes + " glasova, " + s.comments + " komentara" + (s.skipped ? ", preskočeno " + s.skipped : "")
+      + (s.run ? " · " + s.run : "") + (s.error ? " · " + s.error : "");
+    $("[data-verdicts]").innerHTML = s.verdicts.length
+      ? s.verdicts.map((v) => "<li>+" + v.at_s + " s · " + v.net + " · " + v.detector + " ← " + v.who + "</li>").join("")
+      : '<li class="meta">još nijedna</li>';
+    $("[data-report]").textContent = s.report || s.summary || "—";
+    $("[data-start]").disabled = !["gotovo", "greška"].includes(s.phase);
+  };
+</script>`,
+  });
+}
+
 export function adminPage(o: { portal: string; votes: Vote[]; comments: Comment[] }): string {
   const rows = o.votes
     .slice()
@@ -433,7 +533,7 @@ export function adminPage(o: { portal: string; votes: Vote[]; comments: Comment[
     user: null,
     title: "Demo admin",
     wide: true,
-    body: `<div class="kicker">Samo za demo</div>
+    body: `<div class="kicker">Samo za demo · <a href="/admin/napadi">panel napada</a></div>
 <h1>Glasovi</h1>
 <table><thead><tr><th>vreme (UTC)</th><th>post</th><th>komentar</th><th>glas</th><th>token</th><th>upotrebe</th><th>ponovljen</th><th>odluka</th><th>vid</th></tr></thead>
 <tbody>${rows || `<tr><td colspan="9">Još nema glasova.</td></tr>`}</tbody></table>

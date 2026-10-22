@@ -8,7 +8,14 @@ docker compose up -d --wait demo                              # demo + klaka-api
 docker compose run --rm caci run profiles/rafal-0.json        # kampanja + izveštaj
 docker compose run --rm caci report <run>                     # izveštaj za ranije izvođenje
 docker compose run --rm -w /work/caci node npm test            # testovi
+docker compose --profile napadi up -d caci-panel               # panel napada: portal /admin/napadi
 ```
+
+`caci serve` (servis `caci-panel`) je isti emulator kao HTTP servis za panel u adminu portala:
+`GET /profiles` (sa opisom iz tabele ispod), `POST /runs {"profile"}`, `GET /events` (SSE: faza,
+glasovi, komentari, presude čim nastanu), `GET /runs/<id>/report`. Sluša samo na `127.0.0.1`,
+traži `CACI_PANEL_TOKEN` i prihvata samo origin portala. Deli `node_modules` sa komandnom
+linijom: `caci run` ne pokretati dok se servis (re)startuje.
 
 Ova verzija: nivoi 0 (bez tokena), 1 (token uzet direktno sa `/v1/view`) i 2–4 (pravi
 Chromium preko Playwright-a), sve tri uloge sa glasovima i komentarima, ogledalo (strane A i

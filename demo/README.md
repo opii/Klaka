@@ -22,7 +22,7 @@ hiljade. Zbir je onaj koji vidi posetilac, pa poslušnik vidi svoj gurnut koment
 
 ```bash
 docker compose up -d --build demo     # http://localhost:18082  (+ /admin)
-docker compose run --rm e2e           # 10 testova u pravom browseru (Chromium)
+docker compose run --rm e2e           # 11 testova u pravom browseru (Chromium)
 ```
 
 | Šta pokazuje | Ishod |
@@ -75,6 +75,11 @@ uz presudu poslao prebacuje u shadow — komentar nestaje iz javnog prikaza (aut
 se oduzima od brojača. U `/admin` su označene sa „(naknadno)". U compose-u demo veruje zaglavlju
 `X-Forwarded-For` — **samo za test okruženje**, da bi emulator klake (`caci/`) mogao da dodeli
 adrese.
+
+**Panel napada** (`/admin/napadi`, HTTP Basic: `admin` i `PORTAL_ADMIN_PASSWORD`; bez lozinke
+isključen): izbor caci profila, pokretanje, tok kampanje uživo i presude engine-a čim nastanu,
+izveštaj, push za legitimnog blizanca, linkovi na Rendgen i UI recenzenta. Portal ne dopire do
+caci servisa (`caci-panel`, samo `127.0.0.1:18095` hosta): zove ga browser admina, uz token.
 
 **Samo za demo:** `/admin`, `/admin/votes.json` i `/admin/comments.json` (poslednjih 1000, ili
 `?id=` za jedan komentar) prikazuju razloge odluka; `POST /admin/promote {"post","channel"}` glumi da je portal poslao push (događaj

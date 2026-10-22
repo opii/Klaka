@@ -230,14 +230,19 @@ docker compose run --rm e2e
 
 # 3. Pusti emulator klake (caci) protiv demo portala — npr. šablonski komentari sa parafrazama
 docker compose run --rm caci run profiles/sabloni-4.json
+
+# 4. Ili iz browsera: panel napada u adminu portala (http://localhost:18082/admin/napadi,
+#    korisnik admin, lozinka PORTAL_ADMIN_PASSWORD iz .env; token servisa CACI_PANEL_TOKEN)
+docker compose --profile napadi up -d caci-panel
 ```
 
 - **Prvo pokretanje** u pozadini preuzima Ollama modele (`bge-m3` za embeddings, `gemma3:4b` za parafraze emulatora, `gemma3:12b` za opis kohorti — ukupno nekoliko GB). Dok preuzimanje traje, sistem odmah radi sa determinističkim detektorima i MinHash-om.
 - **Portovi na hostu** (svi vezani isključivo za `127.0.0.1`):
-  - `http://localhost:18082` — **Demo portal** (članci `/p/p-1001` … `/p/p-1004`, pregled stanja na `/admin`)
+  - `http://localhost:18082` — **Portal** (naslovna, rubrike, članci `/p/…` sa pogledima Javno / Poslušnik / Rendgen, nalozi, pregled stanja na `/admin`, panel napada na `/admin/napadi`)
   - `http://localhost:18083` — **UI recenzenta** (za prijavu kopirati `.env.example` u `.env` i podesiti `KLAKA_REVIEW_TOKENS=ime:token`)
   - `http://localhost:18081` — `klaka-api` (javni endpoint `/v1/view` za izdavanje tokena)
   - `http://localhost:18080` — `klaka-collector` (prijem događaja `/v1/events` i `/v1/server`)
+  - `http://localhost:18095` — caci servis panela napada (samo uz `--profile napadi`, traži token)
 
 ---
 

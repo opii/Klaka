@@ -256,4 +256,12 @@ parafraziraju preko lokalnog Ollama servisa.
 ```bash
 docker compose run --rm caci run profiles/rafal-0.json      # jedna kampanja + publika
 docker compose run --rm caci report <run-id>               # izveštaj iz baze
+docker compose --profile napadi up -d caci-panel           # panel napada (portal /admin/napadi)
 ```
+
+Panel napada: `caci serve` je HTTP servis na hostu (samo `127.0.0.1:18095`, token
+`CACI_PANEL_TOKEN`, prihvata samo origin portala) — spisak profila sa opisom iz tabele u
+`caci/README.md`, pokretanje (jedno izvođenje u isto vreme), tok uživo preko SSE (faza, glasovi,
+komentari, presude engine-a čim nastanu) i izveštaj. Portal ga u `/admin/napadi` (iza admin
+lozinke) zove iz browsera admina; uz to i push za legitimnog blizanca i linkovi na Rendgen i UI
+recenzenta. Namerno nije u podrazumevanom `docker compose up`: emulator napada nije javan servis.
