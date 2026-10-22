@@ -11,7 +11,7 @@ interface Vote {
 
 /** Javni brojač (admin, samo demo) — `/api/comments` daje zbir kako ga vidi posetilac. */
 async function score(request: APIRequestContext, id: string): Promise<number> {
-  const comments = (await (await request.get("/admin/comments.json")).json()) as { id: string; score: number }[];
+  const comments = (await (await request.get(`/admin/comments.json?id=${id}`)).json()) as { id: string; score: number }[];
   return comments.find((c) => c.id === id)!.score;
 }
 
@@ -26,9 +26,12 @@ async function lastVote(request: APIRequestContext): Promise<Vote> {
   return votes.at(-1)!;
 }
 
-/** Učitava članak i čeka da snippet dobije token od klaka-api. */
-async function openArticle(page: Page): Promise<void> {
-  await page.goto("/p/p-1001");
+/**
+ * Učitava članak preko trajnog linka na komentar (posle mnogo izvođenja caci-ja komentar ne mora
+ * biti na prvoj stranici) i čeka da snippet dobije token od klaka-api.
+ */
+async function openArticle(page: Page, comment: string): Promise<void> {
+  await page.goto(`/p/p-1001?komentar=${comment}`);
   const token = await page.evaluate(async () => (window as unknown as { klaka: { token(): Promise<string | null> } }).klaka.token());
   expect(token, "snippet treba da dobije token od klaka-api").toMatch(/^klaka1\./);
 }
@@ -42,7 +45,7 @@ async function clickVote(page: Page, comment: string, dir: "1" | "-1"): Promise<
 
 test("čitalac: glas posle čitanja ulazi u javni brojač", async ({ page, request }) => {
   const before = await score(request, "c1");
-  await openArticle(page);
+  await openArticle(page, "c1");
   await page.waitForTimeout(2_500); // duže od min_age (2 s)
   await clickVote(page, "c1", "1");
 
@@ -53,7 +56,7 @@ test("čitalac: glas posle čitanja ulazi u javni brojač", async ({ page, reque
 
 test("prebrz glas posle učitavanja ide u shadow, a izgleda isto", async ({ page, browser, request }) => {
   const before = await score(request, "c2");
-  await openArticle(page);
+  await openArticle(page, "c2");
   await clickVote(page, "c2", "1"); // odmah, token mlađi od 2 s
 
   expect(await lastVote(request)).toMatchObject({ comment: "c2", token: "too_young", decision: "shadow" });
@@ -65,7 +68,7 @@ test("prebrz glas posle učitavanja ide u shadow, a izgleda isto", async ({ page
   await page.reload();
   await expect(mine, "posle osvežavanja").toHaveText(String(before + 1));
   const other = await browser.newPage();
-  await other.goto("/p/p-1001");
+  await other.goto("/p/p-1001?komentar=c2");
   await expect(other.locator('[data-comment="c2"] [data-score]')).toHaveText(String(before));
   await other.close();
 });
@@ -96,7 +99,7 @@ test("lažan token: isti odgovor, glas ne ulazi u brojač", async ({ request }) 
 });
 
 test("isti token za drugi post se ne računa", async ({ page, request }) => {
-  await openArticle(page);
+  await openArticle(page, "c1");
   const api = (await page.locator("script[data-api]").getAttribute("data-api"))!;
   const other = await request.post(`${api}/v1/view`, {
     data: JSON.stringify({ portal: "demo.local", post: "p-9999" }),

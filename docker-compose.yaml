@@ -135,6 +135,8 @@ services:
       KLAKA_COLLECTOR_URL: http://klaka-collector:8080
       KLAKA_COLLECTOR_PUBLIC_URL: http://localhost:${COLLECTOR_PORT:-18080}
       KLAKA_API_KEY: ${KLAKA_DEMO_API_KEY:-dev-api-key}
+      # Baza portala, odvojena od Klakine (ista instanca); demo je napravi ako ne postoji.
+      PORTAL_POSTGRES_URL: postgres://${POSTGRES_USER:-klaka}:${POSTGRES_PASSWORD:-klaka-dev}@postgres:5432/portal
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
     ports: ["127.0.0.1:${DEMO_PORT:-18082}:3000"]
@@ -142,6 +144,7 @@ services:
       klaka-api: { condition: service_started }
       klaka-collector: { condition: service_started }
       valkey: { condition: service_healthy }
+      postgres: { condition: service_healthy }
 
   # --- razvojni alati (docker compose run --rm <alat> …) --------------------
 

@@ -1,42 +1,10 @@
-// HTML demo portala. Sve promenljive vrednosti prolaze kroz esc().
+// HTML portala. Sve promenljive vrednosti prolaze kroz esc().
 
-import type { Post } from "./content.js";
+import { SECTIONS, sectionOf, type Post } from "./content.js";
+import type { Comment, Vote } from "./db.js";
+import { PAGE, SORTS, type Sort, type Thread } from "./thread.js";
 
-export interface Comment {
-  id: string;
-  post: string;
-  author: string;
-  text: string;
-  /** Javni brojač: samo glasovi sa odlukom `count`. */
-  score: number;
-  t: number;
-  /** `shadow` komentar vidi samo autor (`owner`); javno se ne prikazuje. */
-  decision: "count" | "shadow";
-  /** Kolačić posetioca koji je napisao komentar; `null` za početne komentare. */
-  owner: string | null;
-  /** Rezultat provere tokena; `null` za početne komentare. */
-  token: string | null;
-  /** Prebačen u shadow naknadno (verdicts.md §5), posle odluke `count`. */
-  retro?: boolean;
-}
-
-export interface VoteLog {
-  t: number;
-  /** Kolačić posetioca koji je glasao — njemu se shadow glas prikazuje kao uračunat. */
-  owner: string | null;
-  post: string;
-  comment: string;
-  dir: 1 | -1;
-  vid: string | null;
-  token: string;
-  uses: number | null;
-  repeat: boolean | null;
-  decision: "count" | "shadow";
-  /** Prebačen u shadow naknadno (verdicts.md §5), posle odluke `count`. */
-  retro?: boolean;
-}
-
-export function esc(s: string | number | null): string {
+export function esc(s: string | number | null | undefined): string {
   return String(s ?? "").replace(
     /[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
@@ -44,72 +12,149 @@ export function esc(s: string | number | null): string {
 }
 
 const STYLE = `
-  :root { color-scheme: light dark; --fg:#1d1d1f; --bg:#fafaf7; --muted:#6b6b6b; --line:#ddd; --accent:#2457c5 }
-  @media (prefers-color-scheme: dark) { :root { --fg:#e8e8e3; --bg:#17181a; --muted:#9a9a9a; --line:#333; --accent:#7aa2ff } }
+  :root { color-scheme: light dark; --fg:#1d1d1f; --bg:#fafaf7; --muted:#6b6b6b; --line:#ddd; --accent:#2457c5; --soft:#f0efe9 }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e8e8e3; --bg:#17181a; --muted:#9a9a9a; --line:#333; --accent:#7aa2ff; --soft:#222326 } }
   body { font: 17px/1.55 Georgia, serif; color: var(--fg); background: var(--bg); margin: 0 }
+  header { border-bottom: 1px solid var(--line); font-family: system-ui, sans-serif }
+  .bar { max-width: 980px; margin: 0 auto; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline }
+  .logo { font: 700 22px/1 Georgia, serif; text-decoration: none; color: var(--fg) }
+  nav a { color: var(--muted); text-decoration: none; font-size: 14px; margin-right: 14px }
+  nav a:hover, nav a.on { color: var(--accent) }
   main { max-width: 680px; margin: 0 auto; padding: 24px 16px 64px }
+  main.wide { max-width: 980px }
   a { color: var(--accent) }
   .kicker { font: 13px/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) }
+  .kicker a { color: inherit; text-decoration: none }
   h1 { font-size: 30px; line-height: 1.2; margin: 8px 0 16px }
+  .lead { font-size: 19px; font-weight: 600 }
   .demo { font: 13px/1.4 system-ui, sans-serif; border: 1px dashed var(--line); padding: 8px 12px; color: var(--muted) }
   section { font-family: system-ui, sans-serif; font-size: 15px; margin-top: 40px }
+  .tools { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; color: var(--muted); font-size: 14px }
+  .tools a.on { font-weight: 700; color: var(--fg); text-decoration: none }
   .c { border-top: 1px solid var(--line); padding: 12px 0; display: grid; grid-template-columns: 1fr auto; gap: 8px }
+  .c.reply { margin-left: 28px; border-top-style: dashed }
   .a { font-weight: 600 }
+  .when { color: var(--muted); font-size: 12px; margin-left: 6px; font-weight: 400 }
   .v { display: flex; align-items: center; gap: 6px }
   button { font: inherit; border: 1px solid var(--line); background: none; color: var(--fg); border-radius: 6px; cursor: pointer }
   button:hover { border-color: var(--accent); color: var(--accent) }
   .v button { width: 32px; height: 32px }
+  button.answer { border: none; padding: 0; color: var(--muted); font-size: 13px; margin-top: 4px }
   .s { min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums }
+  .pages { margin: 16px 0; display: flex; gap: 10px; flex-wrap: wrap }
   form { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 10px }
   label { display: grid; gap: 4px; color: var(--muted) }
   input, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px }
   form button { justify-self: start; padding: 8px 16px }
-  .posts { list-style: none; padding: 0 }
-  .posts li { border-top: 1px solid var(--line); padding: 14px 0 }
-  .posts a { font-size: 21px; text-decoration: none }
+  .to { font-size: 13px; color: var(--muted) }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px }
+  .top { display: grid; grid-template-columns: 2fr 1fr; gap: 32px }
+  @media (max-width: 720px) { .top { grid-template-columns: 1fr } }
+  .story a { text-decoration: none; color: var(--fg) }
+  .story a:hover { color: var(--accent) }
+  .story h2 { font-size: 26px; line-height: 1.2; margin: 6px 0 }
+  .story h3 { font-size: 19px; line-height: 1.25; margin: 6px 0 }
+  .story p { margin: 4px 0; color: var(--muted); font-size: 15px }
+  .list { list-style: none; padding: 0; margin: 0 }
+  .list li { border-top: 1px solid var(--line); padding: 10px 0 }
+  .list a { text-decoration: none; color: var(--fg) }
   .meta { font: 13px system-ui, sans-serif; color: var(--muted) }
+  h2.block { font: 700 14px system-ui, sans-serif; text-transform: uppercase; letter-spacing: .06em; border-bottom: 2px solid var(--fg); padding-bottom: 6px }
   table { border-collapse: collapse; width: 100%; font: 13px system-ui, sans-serif }
   td, th { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left }
   .count { color: #1a7f37 } .shadow { color: #b35900 }
 `;
 
-function layout(title: string, head: string, body: string): string {
+function layout(o: { title: string; head?: string; body: string; section?: string; wide?: boolean; portal: string }): string {
+  const nav = SECTIONS.map(
+    (s) => `<a href="/r/${esc(s.slug)}"${s.id === o.section ? ' class="on"' : ""}>${esc(s.name)}</a>`,
+  ).join("");
   return `<!doctype html>
 <html lang="sr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title>
+<title>${esc(o.title)}</title>
 <style>${STYLE}</style>
-${head}
+${o.head ?? ""}
 </head>
 <body>
-<main>
-${body}
+<header><div class="bar"><a class="logo" href="/">${esc(o.portal)}</a><nav>${nav}</nav></div></header>
+<main${o.wide ? ' class="wide"' : ""}>
+${o.body}
 </main>
 </body>
 </html>`;
 }
 
-export function homePage(o: { portal: string; posts: { post: Post; comments: number }[] }): string {
-  const items = o.posts
-    .map(
-      ({ post, comments }) => `
-    <li><div class="kicker">${esc(post.section)}</div>
-      <a href="/p/${esc(post.id)}">${esc(post.title)}</a>
-      <div class="meta">${esc(comments)} komentara</div></li>`,
-    )
-    .join("");
-  return layout(
-    "Demo portal",
-    "",
-    `<div class="kicker">${esc(o.portal)}</div>
-  <h1>Vesti</h1>
-  <ul class="posts">${items}
-  </ul>
-  <p class="demo">Demo za proof of concept. <a href="/admin">/admin</a> pokazuje šta je uračunato,
-  šta je otišlo u shadow i zašto. Pravi portal te podatke nikad ne prikazuje.</p>`,
-  );
+const DEMO_NOTE = `<p class="demo">Demo za proof of concept. <a href="/admin">/admin</a> pokazuje šta je uračunato,
+  šta je otišlo u shadow i zašto. Pravi portal te podatke nikad ne prikazuje.</p>`;
+
+function storyLink(p: Post, comments: number, big = false): string {
+  const s = sectionOf(p.section);
+  const h = big ? "h2" : "h3";
+  return `<div class="story">
+    <div class="kicker">${esc(s?.name ?? p.section)}</div>
+    <a href="/p/${esc(p.id)}"><${h}>${esc(p.title)}</${h}></a>
+    ${p.lead ? `<p>${esc(p.lead)}</p>` : ""}
+    <div class="meta">${esc(comments)} komentara</div>
+  </div>`;
+}
+
+/** Naslovna: glavna vest, najnovije, najkomentarisanije i blok po rubrici. */
+export function homePage(o: { portal: string; posts: Post[]; comments: Map<string, number> }): string {
+  const count = (p: Post) => o.comments.get(p.id) ?? 0;
+  const newest = [...o.posts].sort((a, b) => b.id.localeCompare(a.id));
+  const [lead, ...rest] = newest;
+  const most = [...o.posts].sort((a, b) => count(b) - count(a) || b.id.localeCompare(a.id)).slice(0, 6);
+  const blocks = SECTIONS.map((s) => {
+    const here = newest.filter((p) => p.section === s.id).slice(0, 3);
+    if (here.length === 0) return "";
+    return `<div><h2 class="block"><a href="/r/${esc(s.slug)}">${esc(s.name)}</a></h2>
+      ${here.map((p) => storyLink(p, count(p))).join("")}</div>`;
+  }).join("");
+  return layout({
+    portal: o.portal,
+    title: o.portal,
+    wide: true,
+    body: lead
+      ? `<div class="top">
+    <div>${storyLink(lead, count(lead), true)}
+      <div class="grid" style="margin-top:24px">${rest.slice(0, 4).map((p) => storyLink(p, count(p))).join("")}</div></div>
+    <aside><h2 class="block">Najkomentarisanije</h2><ul class="list">${most
+      .map((p) => `<li><a href="/p/${esc(p.id)}">${esc(p.title)}</a> <span class="meta">${esc(count(p))}</span></li>`)
+      .join("")}</ul></aside>
+  </div>
+  <div class="grid" style="margin-top:40px">${blocks}</div>
+  ${DEMO_NOTE}`
+      : "<p>Još nema članaka.</p>",
+  });
+}
+
+/** Rubrika: svi članci, noviji prvi. */
+export function sectionPage(o: { portal: string; section: string; name: string; posts: Post[]; comments: Map<string, number> }): string {
+  const list = [...o.posts].sort((a, b) => b.id.localeCompare(a.id));
+  return layout({
+    portal: o.portal,
+    title: `${o.name} — ${o.portal}`,
+    section: o.section,
+    wide: true,
+    body: `<h1>${esc(o.name)}</h1>
+  <div class="grid">${list.map((p) => storyLink(p, o.comments.get(p.id) ?? 0)).join("")}</div>`,
+  });
+}
+
+function commentBox(c: Comment, reply: boolean): string {
+  return `
+      <div class="c${reply ? " reply" : ""}" id="${esc(c.id)}" data-comment="${esc(c.id)}" data-klaka-comment="${esc(c.id)}">
+        <div><div class="a">${esc(c.author)}<span class="when">${esc(when(c.t))}</span></div><div>${esc(c.text)}</div>
+          <button class="answer" type="button" data-reply="${esc(c.id)}" data-author="${esc(c.author)}">Odgovori</button></div>
+        <div class="v">
+          <button data-dir="1" aria-label="Plus za komentar">+</button>
+          <span class="s" data-score>${esc(c.score)}</span>
+          <button data-dir="-1" aria-label="Minus za komentar">−</button>
+        </div>
+      </div>`;
 }
 
 export function articlePage(o: {
@@ -118,38 +163,49 @@ export function articlePage(o: {
   collectorPublic: string;
   portal: string;
   post: Post;
-  /** Komentari koje ovaj posetilac vidi: javni i njegovi `shadow`. */
-  comments: Comment[];
+  /** Niti koje ovaj posetilac vidi (javni i njegovi `shadow` komentari), sortirane. */
+  threads: Thread[];
+  /** Ukupno komentara koje posetilac vidi. */
+  total: number;
+  sort: Sort;
+  page: number;
 }): string {
-  const list = o.comments
-    .map(
-      (c) => `
-      <div class="c" id="${esc(c.id)}" data-comment="${esc(c.id)}" data-klaka-comment="${esc(c.id)}">
-        <div><div class="a">${esc(c.author)}</div><div>${esc(c.text)}</div></div>
-        <div class="v">
-          <button data-dir="1" aria-label="Plus za komentar">+</button>
-          <span class="s" data-score>${esc(c.score)}</span>
-          <button data-dir="-1" aria-label="Minus za komentar">−</button>
-        </div>
-      </div>`,
-    )
-    .join("");
+  const pages = Math.max(1, Math.ceil(o.threads.length / PAGE));
+  const shown = o.threads.slice((o.page - 1) * PAGE, o.page * PAGE);
+  const list = shown.map((t) => commentBox(t.root, false) + t.replies.map((r) => commentBox(r, true)).join("")).join("");
+  const href = (sort: Sort, page: number) => `/p/${esc(o.post.id)}?sort=${sort}${page > 1 ? `&strana=${page}` : ""}#komentari`;
+  const sorts = SORTS.map(
+    (s) => `<a href="${href(s, 1)}"${s === o.sort ? ' class="on"' : ""}>${s === "najbolji" ? "Najbolji" : "Najnoviji"}</a>`,
+  ).join("");
+  const pager =
+    pages > 1
+      ? `<div class="pages">${Array.from({ length: pages }, (_, i) => i + 1)
+          .map((n) => (n === o.page ? `<strong>${n}</strong>` : `<a href="${href(o.sort, n)}">${n}</a>`))
+          .join("")}</div>`
+      : "";
   const paragraphs = o.post.paragraphs.map((p) => `<p>${esc(p)}</p>`).join("\n  ");
+  const section = sectionOf(o.post.section);
   const snippet = `<script src="/klaka.min.js" data-api="${esc(o.apiPublic)}"${o.collectorPublic ? ` data-collector="${esc(o.collectorPublic)}"` : ""} data-portal="${esc(o.portal)}" data-post="${esc(o.post.id)}" async></script>`;
 
-  return layout(
-    o.post.title,
-    snippet,
-    `<div class="kicker"><a href="/">${esc(o.portal)}</a> · ${esc(o.post.section)}</div>
+  return layout({
+    portal: o.portal,
+    title: o.post.title,
+    head: snippet,
+    section: o.post.section,
+    body: `<div class="kicker"><a href="/r/${esc(section?.slug ?? "")}">${esc(section?.name ?? o.post.section)}</a></div>
   <h1>${esc(o.post.title)}</h1>
+  ${o.post.lead ? `<p class="lead">${esc(o.post.lead)}</p>` : ""}
   ${paragraphs}
-  <p class="demo">Demo za proof of concept. <a href="/admin">/admin</a> pokazuje šta je uračunato,
-  šta je otišlo u shadow i zašto. Pravi portal te podatke nikad ne prikazuje.</p>
+  ${DEMO_NOTE}
 
-  <section>
-    <h2>Komentari</h2>
+  <section id="komentari">
+    <h2>Komentari (${esc(o.total)})</h2>
+    <div class="tools">Poređaj: ${sorts}</div>
     ${list}
+    ${pager}
     <form id="komentar" data-post="${esc(o.post.id)}">
+      <input type="hidden" name="reply_to" value="">
+      <div class="to" hidden>Odgovor za <strong data-to></strong> · <a href="#" data-cancel>otkaži</a></div>
       <label>Ime <input name="author" maxlength="40" required autocomplete="nickname"></label>
       <label>Komentar <textarea name="text" rows="4" maxlength="2000" required data-klaka-compose></textarea></label>
       <button type="submit">Pošalji</button>
@@ -160,8 +216,24 @@ export function articlePage(o: {
   // isti za count i shadow, pa je i prikaz isti — shadow komentar autor vidi kao i svaki drugi.
   const klakaHeaders = async () => Object.assign({ "Content-Type": "application/json" },
     window.klaka ? await window.klaka.headers() : {});
+  const form = document.getElementById("komentar");
+  const to = form.querySelector(".to");
 
   document.addEventListener("click", async (e) => {
+    const answer = e.target.closest("button[data-reply]");
+    if (answer) {
+      form.reply_to.value = answer.dataset.reply;
+      to.querySelector("[data-to]").textContent = answer.dataset.author;
+      to.hidden = false;
+      form.text.focus();
+      return;
+    }
+    if (e.target.closest("[data-cancel]")) {
+      e.preventDefault();
+      form.reply_to.value = "";
+      to.hidden = true;
+      return;
+    }
     const b = e.target.closest("button[data-dir]");
     if (!b) return;
     const box = b.closest("[data-comment]");
@@ -173,20 +245,23 @@ export function articlePage(o: {
     }
   });
 
-  // Snippet sam šalje compose na submit (core/spec/events.md §2); ovde samo slanje i osvežavanje.
-  document.getElementById("komentar").addEventListener("submit", async (e) => {
+  // Snippet sam šalje compose na submit (core/spec/events.md §2); ovde slanje i prelazak na
+  // novi komentar (trajni link, jer je nov komentar sa nula glasova možda na drugoj stranici).
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const f = e.currentTarget;
     const res = await fetch("/api/comment", { method: "POST", headers: await klakaHeaders(),
-      body: JSON.stringify({ post: f.dataset.post, author: f.author.value, text: f.text.value }) });
-    if (res.ok) location.reload();
+      body: JSON.stringify({ post: form.dataset.post, author: form.author.value, text: form.text.value,
+        reply_to: form.reply_to.value || null }) });
+    if (!res.ok) return;
+    const { id } = await res.json();
+    location.href = location.pathname + "?komentar=" + encodeURIComponent(id) + "#" + encodeURIComponent(id);
   });
 </script>`,
-  );
+  });
 }
 
-export function adminPage(votes: VoteLog[], comments: Comment[]): string {
-  const rows = votes
+export function adminPage(o: { portal: string; votes: Vote[]; comments: Comment[] }): string {
+  const rows = o.votes
     .slice()
     .reverse()
     .map(
@@ -197,7 +272,7 @@ export function adminPage(votes: VoteLog[], comments: Comment[]): string {
         <td class="${v.decision}">${esc(v.decision)}${v.retro ? " (naknadno)" : ""}</td><td>${esc(v.vid)}</td></tr>`,
     )
     .join("");
-  const list = comments
+  const list = o.comments
     .slice()
     .reverse()
     .map(
@@ -207,10 +282,11 @@ export function adminPage(votes: VoteLog[], comments: Comment[]): string {
         <td>${esc(c.token ?? "početni")}</td><td class="${c.decision}">${esc(c.decision)}${c.retro ? " (naknadno)" : ""}</td><td>${esc(c.score)}</td></tr>`,
     )
     .join("");
-  return layout(
-    "Demo admin",
-    "",
-    `<div class="kicker">Samo za demo</div>
+  return layout({
+    portal: o.portal,
+    title: "Demo admin",
+    wide: true,
+    body: `<div class="kicker">Samo za demo</div>
 <h1>Glasovi</h1>
 <table><thead><tr><th>vreme (UTC)</th><th>post</th><th>komentar</th><th>glas</th><th>token</th><th>upotrebe</th><th>ponovljen</th><th>odluka</th><th>vid</th></tr></thead>
 <tbody>${rows || `<tr><td colspan="9">Još nema glasova.</td></tr>`}</tbody></table>
@@ -218,9 +294,18 @@ export function adminPage(votes: VoteLog[], comments: Comment[]): string {
 <table><thead><tr><th>vreme (UTC)</th><th>post</th><th>ID</th><th>autor</th><th>tekst</th><th>token</th><th>odluka</th><th>skor</th></tr></thead>
 <tbody>${list}</tbody></table>
 <p><a href="/">← nazad na portal</a></p>`,
-  );
+  });
 }
 
 function time(t: number): string {
   return new Date(t).toISOString().slice(11, 23);
+}
+
+/** „pre 5 min", „pre 3 h", datum — kao ispod komentara na portalu. */
+function when(t: number): string {
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return "upravo";
+  if (s < 3600) return `pre ${Math.floor(s / 60)} min`;
+  if (s < 86_400) return `pre ${Math.floor(s / 3600)} h`;
+  return new Date(t).toLocaleDateString("sr-Latn");
 }

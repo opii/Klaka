@@ -84,9 +84,13 @@ function fellowGoal(ctx: Ctx, a: Actor): PortalComment | null {
   return candidates.length ? pick(candidates) : null;
 }
 
-/** Učitava članak i čeka token; vraća ga (ili `null`). */
-async function open(page: Page, p: Profile, ctx: Ctx, post: string): Promise<string | null> {
-  await page.goto(`${ctx.target.portalUrl}/p/${post}`);
+/**
+ * Učitava članak i čeka token; vraća ga (ili `null`). Sa `comment`: trajni link na komentar
+ * (`?komentar=`) — stranica na kojoj je, kao link koji poslušnik dobije uz zadatak.
+ */
+async function open(page: Page, p: Profile, ctx: Ctx, post: string, comment?: string): Promise<string | null> {
+  const link = comment ? `?komentar=${encodeURIComponent(comment)}` : "";
+  await page.goto(`${ctx.target.portalUrl}/p/${post}${link}`);
   const token = await page.evaluate(() => (window as unknown as { klaka: Klaka }).klaka.token());
   await sleep(p.token_wait_ms);
   return token;
@@ -95,7 +99,7 @@ async function open(page: Page, p: Profile, ctx: Ctx, post: string): Promise<str
 /** Glas; `false` ako komentar nije na stranici (shadow komentar drugog poslušnika). */
 async function castVote(page: Page, ctx: Ctx, a: Actor, goal: PortalComment, dir: 1 | -1, how: How): Promise<boolean> {
   const p = ctx.profile;
-  const token = await open(page, p, ctx, goal.post);
+  const token = await open(page, p, ctx, goal.post, goal.id);
   const box = page.locator(`[data-comment="${goal.id}"]`);
   if ((await box.count()) === 0) return false;
   if (how.careful) {

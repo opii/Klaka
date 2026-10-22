@@ -17,6 +17,8 @@ COPY --from=build /build/sdk/node/dist/src /app/sdk/node/dist/src
 COPY --from=build /build/demo/package.json /app/demo/package.json
 COPY --from=build /build/demo/node_modules /app/demo/node_modules
 COPY --from=build /build/demo/dist /app/demo/dist
+COPY --from=build /build/demo/migrations /app/demo/migrations
+COPY --from=build /build/demo/content /app/demo/content
 COPY --from=build /build/ts/dist/klaka.min.js /app/demo/public/klaka.min.js
 ENV KLAKA_SNIPPET=/app/demo/public/klaka.min.js NODE_ENV=production
 WORKDIR /app/demo

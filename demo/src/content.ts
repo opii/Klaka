@@ -1,6 +1,10 @@
-// Sadržaj demo portala: nekoliko članaka i početni komentari. Isti komentatori se javljaju na
+// Sadržaj portala: članci po rubrikama i početni komentari. Isti komentatori se javljaju na
 // više postova, kao na pravom portalu — ciljna dimenzija (koncept §2a) traži baš to: iste mete
-// (autore komentara) kroz postove.
+// (autore komentara) kroz postove. Prva četiri članka su pisana ručno (na njih ciljaju caci
+// profili, `c1`–`c16`); ostale je jednom napisao lokalni LLM (`scripts/write-articles.mjs`,
+// `content/articles.json`) — neutralne vesti iz izmišljenog grada.
+
+import { readFileSync } from "node:fs";
 //
 // Članci su dužine kao na pravom portalu: komentari nisu na prvom ekranu, pa `seen` znači da je
 // čitalac stvarno stigao do njih (core/spec/events.md §2).
@@ -9,10 +13,37 @@ export interface Post {
   id: string;
   section: string;
   title: string;
+  /** Uvod ispod naslova (generisani članci). */
+  lead?: string;
   paragraphs: string[];
 }
 
-export const POSTS: Post[] = [
+export interface Section {
+  /** Kao u `Post.section` i u `post` događaju. */
+  id: string;
+  /** U adresi: `/r/<slug>`. */
+  slug: string;
+  name: string;
+}
+
+export const SECTIONS: Section[] = [
+  { id: "grad", slug: "grad", name: "Grad" },
+  { id: "kultura", slug: "kultura", name: "Kultura" },
+  { id: "saobraćaj", slug: "saobracaj", name: "Saobraćaj" },
+  { id: "sport", slug: "sport", name: "Sport" },
+  { id: "ekonomija", slug: "ekonomija", name: "Ekonomija" },
+];
+
+export interface SeedComment {
+  post: string;
+  id: string;
+  author: string;
+  text: string;
+  /** ID komentara na koji odgovara. */
+  reply_to?: string | null;
+}
+
+const WRITTEN: Post[] = [
   {
     id: "p-1001",
     section: "grad",
@@ -72,7 +103,7 @@ export const POSTS: Post[] = [
 ];
 
 /** Početni komentari, po postu. ID-jevi su jedinstveni na celom portalu. */
-export const SEED_COMMENTS: { post: string; id: string; author: string; text: string }[] = [
+const WRITTEN_COMMENTS: SeedComment[] = [
   { post: "p-1001", id: "c1", author: "Milica", text: "Konačno! Staza je bila u očajnom stanju." },
   { post: "p-1001", id: "c2", author: "Dragan", text: "Klupe su lepe, ali ko će održavati rasvetu?" },
   { post: "p-1001", id: "c3", author: "Jelena", text: "Ograđen prostor za pse bi rešio dosta sukoba." },
@@ -90,3 +121,41 @@ export const SEED_COMMENTS: { post: string; id: string; author: string; text: st
   { post: "p-1004", id: "c15", author: "Ana", text: "Tezge za domaće proizvođače treba da budu bliže ulazu." },
   { post: "p-1004", id: "c16", author: "Vesna", text: "Nadam se da cene zakupa neće oterati male prodavce." },
 ];
+
+interface Generated {
+  id: string;
+  section: string;
+  title: string;
+  lead: string;
+  paragraphs: string[];
+  comments: { author: string; text: string; reply_to: number | null }[];
+}
+
+/** `content/articles.json`; bez njega portal ima samo ručno pisane članke. */
+function generated(): Generated[] {
+  try {
+    return JSON.parse(readFileSync(new URL("../content/articles.json", import.meta.url), "utf8")) as Generated[];
+  } catch {
+    return [];
+  }
+}
+
+const GENERATED = generated();
+
+export const POSTS: Post[] = [...WRITTEN, ...GENERATED.map(({ comments: _, ...post }) => post)];
+
+/** Početni komentari; ID-jevi generisanih su `c-<post>-<n>`, jedinstveni na celom portalu. */
+export const SEED_COMMENTS: SeedComment[] = [
+  ...WRITTEN_COMMENTS,
+  ...GENERATED.flatMap((a) =>
+    a.comments.map((c, i) => ({
+      post: a.id,
+      id: `c-${a.id}-${i + 1}`,
+      author: c.author,
+      text: c.text,
+      reply_to: c.reply_to === null ? null : `c-${a.id}-${c.reply_to + 1}`,
+    })),
+  ),
+];
+
+export const sectionOf = (id: string): Section | undefined => SECTIONS.find((s) => s.id === id);

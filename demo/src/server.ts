@@ -1,7 +1,9 @@
-// Demo portal: nekoliko članaka, komentari, glasanje. Bez framework-a, samo node:http.
+// Portal: naslovna, rubrike, članci, komentari sa odgovorima, glasanje. Bez framework-a, samo
+// node:http; stanje u bazi `portal` (PostgreSQL, odvojena od Klakine).
 //
 // Okruženje:
 //   PORT                 (3000)
+//   PORTAL_POSTGRES_URL    baza portala; pravi je ako ne postoji (postgres://…/portal)
 //   KLAKA_PORTAL           (demo.local)
 //   KLAKA_API_URL          klaka-api sa servera, za /v1/keys       (http://localhost:18081)
 //   KLAKA_API_PUBLIC_URL   klaka-api iz browsera, za /v1/view      (= KLAKA_API_URL)
@@ -20,8 +22,10 @@ import { readFileSync } from "node:fs";
 
 import { EventSender, Klaka, type Policy, type RetroAction } from "@klaka/sdk-node";
 
-import { POSTS, SEED_COMMENTS } from "./content.js";
-import { adminPage, articlePage, homePage, type Comment, type VoteLog } from "./page.js";
+import { POSTS, SECTIONS, SEED_COMMENTS } from "./content.js";
+import { Db, type Comment } from "./db.js";
+import { adminPage, articlePage, homePage, sectionPage } from "./page.js";
+import { pageOf, PAGE, SORTS, threads, type Sort } from "./thread.js";
 import { valkeyStore } from "./valkey.js";
 
 const env = process.env;
@@ -50,29 +54,21 @@ const store = env.KLAKA_VALKEY_URL ? await valkeyStore(env.KLAKA_VALKEY_URL) : n
 
 const snippet = readSnippet(env.KLAKA_SNIPPET ?? "../ts/dist/klaka.min.js");
 
-const started = Date.now();
-const comments: Comment[] = SEED_COMMENTS.map((c) => ({
-  ...c, score: 0, t: started, decision: "count", owner: null, token: null,
-}));
-let nextComment = comments.length + 1;
-// Novi komentari nose oznaku pokretanja: demo ne čuva stanje, a ID komentara mora biti
-// jedinstven i posle restarta (engine po njemu vezuje embeddings, docs/llm.md §5a).
-const INSTANCE = started.toString(36);
-const votes: VoteLog[] = [];
+if (!env.PORTAL_POSTGRES_URL) throw new Error("PORTAL_POSTGRES_URL nije postavljen");
+const db = await Db.open(env.PORTAL_POSTGRES_URL);
+// Početni komentari su stariji od svih pravih (sort „najnoviji").
+await db.seed(SEED_COMMENTS, Date.parse("2026-10-01T08:00:00Z"));
 
-/** Javni komentari i `shadow` komentari ovog posetioca. */
+/** Komentar je vidljiv posetiocu ako je javan ili njegov (shadow komentar vidi samo autor). */
 const visible = (c: Comment, sid: string | null) => c.decision === "count" || (sid !== null && c.owner === sid);
 
 /**
  * Zbirovi kako ih vidi posetilac: javni zbir plus njegovi shadow glasovi (sdk.md §2) — inače
  * posle osvežavanja vidi da mu glas nije uračunat. Ostali vide samo javni zbir.
  */
-function asSeenBy(list: Comment[], sid: string | null): Comment[] {
+async function asSeenBy(list: Comment[], sid: string | null, post: string | null): Promise<Comment[]> {
   if (sid === null) return list;
-  const own = new Map<string, number>();
-  for (const v of votes) {
-    if (v.owner === sid && v.decision === "shadow") own.set(v.comment, (own.get(v.comment) ?? 0) + v.dir);
-  }
+  const own = await db.ownShadowDeltas(sid, post);
   return own.size === 0 ? list : list.map((c) => (own.has(c.id) ? { ...c, score: c.score + own.get(c.id)! } : c));
 }
 
@@ -106,19 +102,20 @@ async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const headers: Record<string, string> = {};
   const sid = cookie(req, SID) ?? newSid(headers);
   // Komentar koji posetilac ne vidi (tuđ shadow) ne postoji za njega.
-  const comment = comments.find((c) => c.id === body?.comment && visible(c, sid));
+  const comment = typeof body?.comment === "string" ? await db.comment(body.comment) : null;
   const dir = body?.dir;
-  if (!comment || (dir !== 1 && dir !== -1)) return send(res, 400, "application/json", '{"ok":false}');
+  if (!comment || !visible(comment, sid) || (dir !== 1 && dir !== -1)) {
+    return send(res, 400, "application/json", '{"ok":false}');
+  }
 
   const now = Date.now();
   // Bez ključeva (klaka-api nedostupan pri startu) nijedan token ne može da se proveri.
   const r = klaka
     ? await klaka.onVote(clientRequest(req), { post: comment.post, target: comment.id, targetAuthor: comment.author, dir })
     : { decision: "shadow" as const, vid: null, token: "unknown_key" as const, uses: null, repeat: null };
-  if (r.decision === "count") comment.score += dir;
-  votes.push({
+  await db.insertVote({
     t: now, owner: sid, post: comment.post, comment: comment.id, dir, vid: r.vid, token: r.token, uses: r.uses,
-    repeat: r.repeat, decision: r.decision,
+    repeat: r.repeat, decision: r.decision, retro: false,
   });
 
   // Isti odgovor za count i shadow (spec README, princip 3).
@@ -135,40 +132,41 @@ async function comment(req: IncomingMessage, res: ServerResponse): Promise<void>
   }
   const headers: Record<string, string> = {};
   const sid = cookie(req, SID) ?? newSid(headers);
-  const id = `c${nextComment++}-${INSTANCE}`;
+  // Odgovor samo na komentar istog članka koji posetilac vidi.
+  let replyTo: string | null = null;
+  if (typeof body?.reply_to === "string" && body.reply_to) {
+    const parent = await db.comment(body.reply_to);
+    if (!parent || parent.post !== post.id || !visible(parent, sid)) return send(res, 400, "application/json", '{"ok":false}');
+    replyTo = parent.id;
+  }
+  const id = await db.nextCommentId();
   const r = klaka
-    ? await klaka.onComment(clientRequest(req), { post: post.id, comment: id, author, text, replyTo: null })
+    ? await klaka.onComment(clientRequest(req), { post: post.id, comment: id, author, text, replyTo })
     : { decision: "shadow" as const, token: "unknown_key" as const };
-  comments.push({ id, post: post.id, author, text, score: 0, t: Date.now(), decision: r.decision, owner: sid, token: r.token });
+  await db.insertComment({
+    id, post: post.id, reply_to: replyTo, author, text, score: 0, t: Date.now(), decision: r.decision, owner: sid,
+    token: r.token, retro: false,
+  });
 
   // Isti odgovor za count i shadow: autor svoj komentar vidi u oba slučaja.
   send(res, 200, "application/json", JSON.stringify({ ok: true, id }), headers);
 }
 
-// Naknadni shadow (sdk.md §2b): akcije koje je engine uz presudu poslao da se skinu. Kursor je
-// u memoriji, kao i sve ostalo u demo-u; počinje od starta, jer starije akcije ovaj proces ne zna.
-let retroCursor = `${started}-0`;
+// Naknadni shadow (sdk.md §2b): akcije koje je engine uz presudu poslao da se skinu. Kursor je u
+// bazi portala, pa restart nastavlja odakle je stao.
 const RETRO_MS = 2_000;
+const RETRO_CURSOR = "retro_cursor";
 
 async function applyRetro(): Promise<void> {
   if (!klaka) return;
-  const { cursor, actions } = await klaka.retro(retroCursor);
-  for (const a of actions) applyRetroAction(a);
-  retroCursor = cursor;
-}
-
-/** Idempotentno: već skinuta ili nepoznata akcija se preskače. */
-function applyRetroAction(a: RetroAction): void {
-  if (a.kind === "comment") {
-    const c = comments.find((x) => x.id === a.comment && x.decision === "count");
-    if (c) Object.assign(c, { decision: "shadow", retro: true });
-    return;
+  const after = (await db.getState(RETRO_CURSOR)) ?? "0-0";
+  const { cursor, actions } = await klaka.retro(after);
+  // Idempotentno: već skinuta ili nepoznata akcija se preskače.
+  for (const a of actions) {
+    if (a.kind === "comment") await db.retroComment(a.comment);
+    else await db.retroVote(a.vid, a.target);
   }
-  const v = votes.find((x) => x.vid === a.vid && x.comment === a.target && x.decision === "count");
-  if (!v) return;
-  Object.assign(v, { decision: "shadow", retro: true });
-  const c = comments.find((x) => x.id === v.comment);
-  if (c) c.score -= v.dir;
+  if (cursor !== after) await db.setState(RETRO_CURSOR, cursor);
 }
 
 /**
@@ -186,20 +184,43 @@ async function promote(req: IncomingMessage, res: ServerResponse): Promise<void>
   send(res, 200, "application/json", '{"ok":true}');
 }
 
-function article(req: IncomingMessage, res: ServerResponse, id: string): void {
+async function article(req: IncomingMessage, res: ServerResponse, id: string, url: URL): Promise<void> {
   const post = POSTS.find((p) => p.id === id);
   if (!post) return send(res, 404, "text/plain", "nema");
   const headers: Record<string, string> = {};
   const sid = cookie(req, SID) ?? newSid(headers);
-  const list = asSeenBy(comments.filter((c) => c.post === post.id && visible(c, sid)), sid);
+  const sort: Sort = SORTS.find((s) => s === url.searchParams.get("sort")) ?? "najbolji";
+  const list = await asSeenBy(await db.visibleComments(post.id, sid), sid, post.id);
+  const all = threads(list, sort);
+  // Trajni link na komentar (`?komentar=`) otvara stranicu na kojoj je; inače `?strana=`.
+  const linked = url.searchParams.get("komentar");
+  const pages = Math.max(1, Math.ceil(all.length / PAGE));
+  const asked = Number(url.searchParams.get("strana") ?? 1);
+  const page = linked ? pageOf(all, linked) : Number.isInteger(asked) ? Math.min(Math.max(asked, 1), pages) : 1;
   send(res, 200, "text/html; charset=utf-8",
-    articlePage({ apiPublic: API_PUBLIC, collectorPublic: COLLECTOR_PUBLIC, portal: PORTAL, post, comments: list }), headers);
+    articlePage({
+      apiPublic: API_PUBLIC, collectorPublic: COLLECTOR_PUBLIC, portal: PORTAL, post, threads: all, total: list.length,
+      sort, page,
+    }), headers);
 }
 
-function publicComments(req: IncomingMessage, post: string | null): object[] {
+async function publicComments(req: IncomingMessage, post: string | null): Promise<object[]> {
   const sid = cookie(req, SID);
-  return asSeenBy(comments.filter((c) => (post === null || c.post === post) && visible(c, sid)), sid)
-    .map(({ id, post, author, text, score }) => ({ id, post, author, text, score }));
+  return (await asSeenBy(await db.visibleComments(post, sid), sid, post))
+    .map(({ id, post, reply_to, author, text, score }) => ({ id, post, reply_to, author, text, score }));
+}
+
+async function admin(url: URL, res: ServerResponse, what: "html" | "votes" | "comments"): Promise<void> {
+  const limit = 1_000;
+  if (what === "votes") return send(res, 200, "application/json", JSON.stringify(await db.lastVotes(limit)));
+  if (what === "comments") {
+    // `?id=` za jedan komentar (javni brojač u e2e), inače poslednjih 1000.
+    const id = url.searchParams.get("id");
+    const list = id ? [await db.comment(id)].filter(Boolean) : await db.lastComments(limit);
+    return send(res, 200, "application/json", JSON.stringify(list));
+  }
+  send(res, 200, "text/html; charset=utf-8",
+    adminPage({ portal: PORTAL, votes: await db.lastVotes(200), comments: await db.lastComments(200) }));
 }
 
 const server = createServer((req, res) => {
@@ -207,13 +228,12 @@ const server = createServer((req, res) => {
   const route = `${req.method} ${url.pathname}`;
   Promise.resolve()
     .then(() => {
-      if (req.method === "GET" && url.pathname.startsWith("/p/")) return article(req, res, url.pathname.slice(3));
+      if (req.method === "GET" && url.pathname.startsWith("/p/")) return article(req, res, url.pathname.slice(3), url);
+      if (req.method === "GET" && url.pathname.startsWith("/r/")) return section(res, url.pathname.slice(3));
       switch (route) {
         case "GET /":
-          return send(res, 200, "text/html; charset=utf-8", homePage({
-            portal: PORTAL,
-            posts: POSTS.map((post) => ({ post, comments: comments.filter((c) => c.post === post.id && c.decision === "count").length })),
-          }));
+          return db.publicCounts().then((comments) =>
+            send(res, 200, "text/html; charset=utf-8", homePage({ portal: PORTAL, posts: POSTS, comments })));
         case "GET /klaka.min.js":
           return send(res, 200, "text/javascript; charset=utf-8", snippet);
         case "POST /api/vote":
@@ -223,13 +243,14 @@ const server = createServer((req, res) => {
         case "GET /api/posts":
           return send(res, 200, "application/json", JSON.stringify(POSTS.map(({ id, title }) => ({ id, title }))));
         case "GET /api/comments":
-          return send(res, 200, "application/json", JSON.stringify(publicComments(req, url.searchParams.get("post"))));
+          return publicComments(req, url.searchParams.get("post")).then((list) =>
+            send(res, 200, "application/json", JSON.stringify(list)));
         case "GET /admin":
-          return send(res, 200, "text/html; charset=utf-8", adminPage(votes, comments));
+          return admin(url, res, "html");
         case "GET /admin/votes.json":
-          return send(res, 200, "application/json", JSON.stringify(votes));
+          return admin(url, res, "votes");
         case "GET /admin/comments.json":
-          return send(res, 200, "application/json", JSON.stringify(comments));
+          return admin(url, res, "comments");
         case "POST /admin/promote":
           return promote(req, res);
         case "GET /healthz":
@@ -243,6 +264,14 @@ const server = createServer((req, res) => {
       if (!res.headersSent) send(res, 500, "text/plain", "greška");
     });
 });
+
+async function section(res: ServerResponse, slug: string): Promise<void> {
+  const s = SECTIONS.find((x) => x.slug === decodeURIComponent(slug));
+  if (!s) return send(res, 404, "text/plain", "nema");
+  const posts = POSTS.filter((p) => p.section === s.id);
+  send(res, 200, "text/html; charset=utf-8",
+    sectionPage({ portal: PORTAL, section: s.id, name: s.name, posts, comments: await db.publicCounts() }));
+}
 
 function clientRequest(req: IncomingMessage) {
   const header = req.headers["x-klaka-token"];
@@ -319,7 +348,9 @@ server.listen(PORT, () =>
 );
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
   process.on(sig, () => {
-    server.close(() => void (events?.flush() ?? Promise.resolve()).finally(() => process.exit(0)));
+    server.close(() =>
+      void (events?.flush() ?? Promise.resolve()).finally(() => void db.close().finally(() => process.exit(0))),
+    );
     server.closeAllConnections();
   });
 }

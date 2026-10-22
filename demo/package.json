@@ -14,11 +14,13 @@
   },
   "dependencies": {
     "@klaka/sdk-node": "file:../sdk/node",
+    "pg": "^8.23.1",
     "redis": "^4.7.1"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.6.0"
   }
 }
