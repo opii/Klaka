@@ -207,7 +207,7 @@ flowchart TD
 | [`core/`](core/) | Rust (Cargo workspace) | Naš sistem (`klaka-core`, `klaka-db`, `klaka-collector`, `klaka-api`, `klaka-engine`, `klaka-llm`), SQL migracije i [`spec/`](core/spec/) protokola sa zajedničkim test vektorima |
 | [`sdk/node/`](sdk/node/) | TypeScript (Node 18+, 0 zavisnosti) | Referentni SDK za backend portala: provera Ed25519 tokena, Valkey integracija (`onVote`, `onComment`, `retro`, `onPromotion`), asinhrono slanje događaja. U [`sdk/`](sdk/) su predviđeni i `php/`, `go/`, `java/` |
 | [`ts/`](ts/) | TypeScript (browser, ≤ 8 KB gzip) | Klijentski senzor za stranicu članka: dohvatanje tokena, popunjavanje formi i zaglavlja, telemetrija čitanja (`view`, `engage` sa `seen`, `compose`) |
-| [`demo/`](demo/) | TypeScript (`node:http`) | Demo portal sa 4 članka, komentarima, glasanjem, sesijama i periodičnim izvršavanjem naknadnog shadow-a (`http://localhost:18082`) |
+| [`demo/`](demo/) | TypeScript (`node:http`), PostgreSQL | Portal: naslovna, rubrike, članci (ručno pisani i napisani lokalnim LLM-om), komentari u nitima sa sortiranjem i trajnim linkom, glasanje, sesije i naknadni shadow; stanje u bazi `portal`, odvojenoj od Klakine (`http://localhost:18082`) |
 | [`caci/`](caci/) | TypeScript + Playwright | Emulator klake i legitimne publike: pušta poslušnike u 3 uloge na nivoima 0–4 (od `fetch` skripte do pravog browsera, smena, rasutih prefiksa i LLM parafraza), paralelno sa čitaocima i CGNAT-om, i računa odziv i lažne pozitive direktno iz baze |
 | [`docs/`](docs/) | Markdown | Koncept, rečnik pojmova, tehnički stack, dizajn LLM sloja i dokumentacija emulatora |
 
