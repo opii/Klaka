@@ -52,6 +52,11 @@ const STYLE = `
   @media (max-width: 720px) { .top { grid-template-columns: 1fr } }
   .story a { text-decoration: none; color: var(--fg) }
   .story a:hover { color: var(--accent) }
+  .story + .story { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line) }
+  .grid > .story + .story { margin-top: 0; padding-top: 0; border-top: none }
+  .thumb { display: block; margin-bottom: 8px; overflow: hidden; border-radius: 4px; background: var(--soft) }
+  .thumb img, .figure img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover }
+  .figure { margin: 16px 0 20px; border-radius: 4px; overflow: hidden; background: var(--soft) }
   .story h2 { font-size: 26px; line-height: 1.2; margin: 6px 0 }
   .story h3 { font-size: 19px; line-height: 1.25; margin: 6px 0 }
   .story p { margin: 4px 0; color: var(--muted); font-size: 15px }
@@ -143,28 +148,32 @@ ${o.body}
 const DEMO_NOTE = `<p class="demo">Demo za proof of concept. <a href="/admin">/admin</a> pokazuje šta je uračunato,
   šta je otišlo u shadow i zašto. Pravi portal te podatke nikad ne prikazuje.</p>`;
 
-function storyLink(p: Post, comments: number, big = false): string {
+function storyLink(p: Post, comments: number, big = false, photo = true): string {
   const s = sectionOf(p.section);
   const h = big ? "h2" : "h3";
+  const img = photo
+    ? `<a class="thumb" href="/p/${esc(p.id)}"><img src="/img/${esc(p.id)}.jpg" alt="${esc(p.title)}" width="640" height="360" loading="${big ? "eager" : "lazy"}"></a>`
+    : "";
   return `<div class="story">
-    <div class="kicker">${esc(s?.name ?? p.section)}</div>
+    ${img}<div class="kicker">${esc(s?.name ?? p.section)}</div>
     <a href="/p/${esc(p.id)}"><${h}>${esc(p.title)}</${h}></a>
     ${p.lead ? `<p>${esc(p.lead)}</p>` : ""}
     <div class="meta">${esc(comments)} komentara</div>
   </div>`;
 }
 
-/** Naslovna: glavna vest, najnovije, najkomentarisanije i blok po rubrici. */
+/** Naslovna: glavna vest, izdvojene vesti, najkomentarisanije i blok po rubrici. */
 export function homePage(o: { portal: string; user: User; posts: Post[]; comments: Map<string, number> }): string {
   const count = (p: Post) => o.comments.get(p.id) ?? 0;
+  // Prva 4 članka (p-1001…p-1004) su mete caci kampanja, pa su na vrhu naslovne; rubrike ispod idu od novijih.
+  const [lead, ...rest] = o.posts;
   const newest = [...o.posts].sort((a, b) => b.id.localeCompare(a.id));
-  const [lead, ...rest] = newest;
   const most = [...o.posts].sort((a, b) => count(b) - count(a) || b.id.localeCompare(a.id)).slice(0, 6);
   const blocks = SECTIONS.map((s) => {
     const here = newest.filter((p) => p.section === s.id).slice(0, 3);
     if (here.length === 0) return "";
     return `<div><h2 class="block"><a href="/r/${esc(s.slug)}">${esc(s.name)}</a></h2>
-      ${here.map((p) => storyLink(p, count(p))).join("")}</div>`;
+      ${here.map((p, i) => storyLink(p, count(p), false, i === 0)).join("")}</div>`;
   }).join("");
   return layout({
     portal: o.portal,
@@ -296,6 +305,7 @@ export function articlePage(o: {
     body: `<div class="kicker"><a href="/r/${esc(section?.slug ?? "")}">${esc(section?.name ?? o.post.section)}</a></div>
   <h1>${esc(o.post.title)}</h1>
   ${o.post.lead ? `<p class="lead">${esc(o.post.lead)}</p>` : ""}
+  <figure class="figure"><img src="/img/${esc(o.post.id)}.jpg" alt="${esc(o.post.title)}" width="640" height="360"></figure>
   ${paragraphs}
   ${DEMO_NOTE}
 

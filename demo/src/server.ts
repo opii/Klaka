@@ -32,7 +32,7 @@ import { EventSender, Klaka, cidOf, netPrefix, type Policy } from "@klaka/sdk-no
 
 import { checkPassword, hashPassword } from "./auth.js";
 
-import { POSTS, SECTIONS, SEED_COMMENTS } from "./content.js";
+import { photoOf, POSTS, SECTIONS, SEED_COMMENTS } from "./content.js";
 import { Db, type Account, type Comment, type Viewer, type VoteStats } from "./db.js";
 import {
   accountPage, adminPage, articlePage, attacksPage, homePage, sectionPage, VIEWS, type Note, type View, type Xray,
@@ -351,6 +351,13 @@ const server = createServer((req, res) => {
     .then(() => {
       if (req.method === "GET" && url.pathname.startsWith("/p/")) return article(req, res, url.pathname.slice(3), url);
       if (req.method === "GET" && url.pathname.startsWith("/r/")) return section(req, res, url.pathname.slice(3));
+      if (req.method === "GET" && url.pathname.startsWith("/img/") && url.pathname.endsWith(".jpg")) {
+        const buf = photoOf(url.pathname.slice(5, -4));
+        if (!buf) return send(res, 404, "text/plain", "nema");
+        res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" });
+        res.end(buf);
+        return;
+      }
       switch (route) {
         case "GET /":
           return home(req, res);

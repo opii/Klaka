@@ -159,3 +159,24 @@ export const SEED_COMMENTS: SeedComment[] = [
 ];
 
 export const sectionOf = (id: string): Section | undefined => SECTIONS.find((s) => s.id === id);
+
+const PHOTOS = new Map<string, Buffer>();
+for (const p of POSTS) {
+  try {
+    PHOTOS.set(p.id, readFileSync(new URL(`../content/img/${p.id}.jpg`, import.meta.url)));
+  } catch {
+    // Članak bez sopstvene slike nasleđuje sliku iz iste rubrike.
+  }
+}
+
+/** Fotografija članka (`content/img/<id>.jpg`), ili rezervna iz iste rubrike. */
+export function photoOf(id: string): Buffer | null {
+  const direct = PHOTOS.get(id);
+  if (direct) return direct;
+  const post = POSTS.find((p) => p.id === id);
+  if (!post) return null;
+  const same = POSTS.filter((p) => p.section === post.section && PHOTOS.has(p.id));
+  if (same.length === 0) return PHOTOS.values().next().value ?? null;
+  const idx = [...id].reduce((a, c) => a + c.charCodeAt(0), 0) % same.length;
+  return PHOTOS.get(same[idx]!.id) ?? null;
+}
