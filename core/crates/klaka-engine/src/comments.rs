@@ -417,40 +417,30 @@ const MAX_GROUP_NETS: usize = 500;
 /// na ≥ `cfg.min_posts` postova, uz Jaccard nad komentarima ≥ `cfg.min_jaccard` (CGNAT sa mnogo
 /// komentara ni sa kim nema sličan skup); pa k-jezgro i komponenta ≥ `cfg.min_cohort_nets`. Dva
 /// para drže publiku van grafa: jedna opšta fraza ne povezuje dva čitaoca.
+///
+/// Dve opšte fraze bi povezale (izmereno, `popularne-fraze`): na velikom portalu dosta čitalaca
+/// napiše i „Bravo!" i „Tako je!" na dva članka, i među sobom su onda usklađeni kao klaka. Ono
+/// što ih razlikuje je ko još piše istu frazu: popularnu frazu piše publika — uglavnom pojedinci
+/// sa jednim komentarom — a šablon klake skoro samo prefiksi klake (`popular_comments`).
 fn template_graph(comments: &[CommentText], near: &[Vec<usize>], cfg: &Config) -> Vec<Member> {
     let n = comments.len();
     let mut node_of: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     let mut net_of = Vec::with_capacity(n);
     let mut size: Vec<usize> = Vec::new();
-    let mut linked: Vec<BTreeSet<&str>> = Vec::new();
-    for (i, c) in comments.iter().enumerate() {
+    for c in comments {
         let next = node_of.len();
         let k = *node_of.entry((&c.portal, &c.net)).or_insert(next);
         if k == size.len() {
             size.push(0);
-            linked.push(BTreeSet::new());
         }
         size[k] += 1;
         net_of.push(k);
-        if !near[i].is_empty() {
-            linked[k].insert(&c.comment);
-        }
     }
-    // Prefiks bez bar dva komentara sa blizancem na bar `min_posts` postova ne može imati ivicu —
-    // ne uparuje se (pojedinci sa jednim komentarom).
-    let mut eligible = vec![false; size.len()];
-    for k in 0..size.len() {
-        eligible[k] = linked[k].len() >= 2;
-    }
-    let mut posts_of: Vec<BTreeSet<&str>> = vec![BTreeSet::new(); size.len()];
-    for (i, c) in comments.iter().enumerate() {
-        if !near[i].is_empty() {
-            posts_of[net_of[i]].insert(&c.post);
-        }
-    }
-    for k in 0..size.len() {
-        eligible[k] &= posts_of[k].len() as i64 >= cfg.min_posts;
-    }
+    // Dva prolaza: `eligible` sa svim komentarima nađe popularne fraze, pa se `eligible` računa
+    // ponovo bez njih, a one ne ulaze ni u uparivanje.
+    let (_, first) = eligibility(comments, near, &net_of, size.len(), &vec![false; n], cfg);
+    let popular = popular_comments(near, &net_of, &first, n, cfg);
+    let (linked, eligible) = eligibility(comments, near, &net_of, size.len(), &popular, cfg);
 
     // Grupa čvora v: v (ako je komentar iz prozora) i njegovi susedi iz prozora — svaka dva su
     // susedi ili imaju zajedničkog suseda (v). Za par prefiksa: koji su njihovi komentari upareni.
@@ -462,7 +452,7 @@ fn template_graph(comments: &[CommentText], near: &[Vec<usize>], cfg: &Config) -
             .into_iter()
             .chain(around.iter().copied())
         {
-            if x < n && eligible[net_of[x]] {
+            if x < n && !popular[x] && eligible[net_of[x]] {
                 group.entry(net_of[x]).or_default().push(x);
             }
         }
@@ -498,6 +488,61 @@ fn template_graph(comments: &[CommentText], near: &[Vec<usize>], cfg: &Config) -
     }
     let elements: Vec<usize> = linked.iter().map(BTreeSet::len).collect();
     members(&node_of, &adj, &elements, cfg)
+}
+
+/// Komentari sa blizancem po prefiksu (`linked`, bez `skip`) i koji prefiksi mogu imati ivicu:
+/// bar dva takva komentara na bar `min_posts` postova — pojedinci sa jednim komentarom ne mogu.
+fn eligibility<'a>(
+    comments: &'a [CommentText],
+    near: &[Vec<usize>],
+    net_of: &[usize],
+    nets: usize,
+    skip: &[bool],
+    cfg: &Config,
+) -> (Vec<BTreeSet<&'a str>>, Vec<bool>) {
+    let mut linked: Vec<BTreeSet<&str>> = vec![BTreeSet::new(); nets];
+    let mut posts: Vec<BTreeSet<&str>> = vec![BTreeSet::new(); nets];
+    for (i, c) in comments.iter().enumerate() {
+        if !near[i].is_empty() && !skip[i] {
+            linked[net_of[i]].insert(&c.comment);
+            posts[net_of[i]].insert(&c.post);
+        }
+    }
+    let eligible = (0..nets)
+        .map(|k| linked[k].len() >= 2 && posts[k].len() as i64 >= cfg.min_posts)
+        .collect();
+    (linked, eligible)
+}
+
+/// Popularne fraze: komentar iz grupe oko nekog čvora (komentar, čvorište grupe kopija, stari
+/// blizanac) sa bar `min_cohort_nets` prefiksa — veličina kohorte — od kojih manje od polovine
+/// može imati ivicu (`eligible`). Takvu frazu piše publika, ne kohorta: šablon klake u istoj
+/// grupi okuplja skoro samo prefikse klake, a svaki od njih ima bar dva komentara. Klaka koja za
+/// šablon uzme baš opštu frazu se iza publike sakrije — opšta fraza je ionako slab dokaz.
+fn popular_comments(
+    near: &[Vec<usize>],
+    net_of: &[usize],
+    eligible: &[bool],
+    n: usize,
+    cfg: &Config,
+) -> Vec<bool> {
+    let mut popular = vec![false; n];
+    for (v, around) in near.iter().enumerate() {
+        let group: Vec<usize> = (v < n)
+            .then_some(v)
+            .into_iter()
+            .chain(around.iter().copied())
+            .filter(|&x| x < n)
+            .collect();
+        let nets: BTreeSet<usize> = group.iter().map(|&x| net_of[x]).collect();
+        let strong = nets.iter().filter(|&&k| eligible[k]).count();
+        if nets.len() as i64 >= cfg.min_cohort_nets && strong * 2 < nets.len() {
+            for x in group {
+                popular[x] = true;
+            }
+        }
+    }
+    popular
 }
 
 /// Težina prethodne pretpostavke u organskom udelu šablonskih komentara, u „prefiksima": dok
@@ -1257,6 +1302,52 @@ mod tests {
         }
         let found = templates(&c, &[], &Nets::new(), &cfg());
         assert!(found.members.is_empty(), "{:?}", found.members);
+    }
+
+    #[test]
+    fn popular_phrases_link_no_readers_but_klaka_stays() {
+        // Publika na velikom portalu: 30 čitalaca napiše samo „Bravo…", 10 samo „Tako je…", a 8
+        // napiše obe fraze na dva članka — svaki ima dva komentara sa blizancem na dva posta, i
+        // bez filtera popularnih fraza tih 8 su usklađeni kao klaka (k-jezgro, komponenta ≥ 5).
+        let mut c = audience(40);
+        let bravo = "Bravo, svaka čast!";
+        let tako = "Tako je, sve je rečeno.";
+        for k in 0..30 {
+            let id = format!("b{k}");
+            c.push(text(
+                &format!("10.1.{k}.0/24"),
+                &format!("p-{}", k % 3),
+                &id,
+                &id,
+                bravo,
+            ));
+        }
+        for k in 0..10 {
+            let id = format!("t{k}");
+            c.push(text(
+                &format!("10.2.{k}.0/24"),
+                &format!("p-{}", k % 3),
+                &id,
+                &id,
+                tako,
+            ));
+        }
+        for k in 0..8 {
+            let net = format!("10.3.{k}.0/24");
+            c.push(text(&net, "p-0", &format!("x{k}"), &format!("x{k}"), bravo));
+            c.push(text(&net, "p-1", &format!("y{k}"), &format!("y{k}"), tako));
+        }
+        // Klaka: 8 rasutih prefiksa, svaki 3 šablona na 3 članka (kao caci).
+        c.extend(scattered(8));
+        let found = templates(&c, &[], &Nets::new(), &cfg());
+        let nets: BTreeSet<_> = found.members.iter().map(|m| m.net.as_str()).collect();
+        let klaka: BTreeSet<String> = (0..8).map(|k| format!("198.18.{k}.0/24")).collect();
+        assert_eq!(
+            nets,
+            klaka.iter().map(String::as_str).collect(),
+            "{:?}",
+            found.members
+        );
     }
 
     #[test]

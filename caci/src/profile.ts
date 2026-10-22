@@ -74,6 +74,12 @@ export interface Profile {
     vote_p: number;
     /** Verovatnoća da čitalac napiše komentar na članak koji je pročitao. */
     comment_p?: number;
+    /**
+     * Udeo komentara čitalaca koji su kratka opšta fraza (`POPULAR`: „Svaka čast!", „Tako je!"…)
+     * umesto komentara o članku: na velikom portalu ih piše i prava publika, pa su rizik za
+     * grafove šablona (docs/llm.md §5a).
+     */
+    popular?: number;
     /** Koliko dugo čitaoci pristižu, sekunde (podrazumevano: koliko traje kampanja). */
     span_s?: number;
     /**
@@ -121,6 +127,7 @@ export function parseProfile(raw: unknown): Profile {
   const a = p.audience;
   if (!(a?.readers >= 0) || !(a.vote_p >= 0 && a.vote_p <= 1)) fail("audience");
   if (a.comment_p !== undefined && !(a.comment_p >= 0 && a.comment_p <= 1)) fail("audience.comment_p");
+  if (a.popular !== undefined && !(a.popular >= 0 && a.popular <= 1)) fail("audience.popular");
   checkLogNormal(p.delay_ms, "delay_ms", fail);
   checkLogNormal(a.read_ms, "audience.read_ms", fail);
   if (p.reaction_ms) checkLogNormal(p.reaction_ms, "reaction_ms", fail);

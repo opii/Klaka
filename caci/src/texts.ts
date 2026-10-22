@@ -30,6 +30,15 @@ export const TEMPLATES: Record<Role, string[]> = {
   ],
 };
 
+/**
+ * Kratke opšte fraze koje piše i prava publika — bez šablona, bez dogovora. Na velikom portalu
+ * dva čitaoca u istom prozoru lako napišu dve iste na dva članka (`audience.popular`).
+ */
+export const POPULAR = [
+  "Svaka čast!", "Tako je!", "Sramota!", "Bravo!", "Tačno tako.", "Sve je rečeno.", "Potpis.", "Istina.",
+  "Jadno.", "Konačno!", "Ovo je istina.", "Bravo, tako treba!",
+];
+
 const NAMES = [
   "Goran", "Sneža", "Vlada", "Biljana", "Dejan", "Tanja", "Zoran", "Maja", "Nenad", "Ivana",
   "Bojan", "Jasna", "Saša", "Gordana", "Miloš", "Danijela", "Uroš", "Ljilja", "Darko", "Branka",

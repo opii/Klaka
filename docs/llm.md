@@ -13,7 +13,7 @@ i to samo ako merenje (§7) pokaže da donose razliku vrednu cene.
 ## 0. Mesto LLM-a u sistemu
 
 - **Ollama + pgvector su obavezan par** (embeddings → čuvanje i pretraga sličnosti, §5a). Generativni
-  zadaci (G1–G3) su dodatak: token, honeypot i graf kohorte rade i bez njih.
+  zadaci (G1–G3) su dodatak: token i graf kohorte rade i bez njih.
 - LLM je **savetodavan**: daje ulaze engine-u (teme, embeddings, sažetke), nikad presudu.
   Konkretno, generativni model **opisuje** semantičku koheziju kohorte (šta grupa poručuje,
   koliko su poruke slične) za recenzenta, i **nema dozvolu** da menja skor, kohortu ni
@@ -168,8 +168,17 @@ LIMIT 20;
   od 16 prefiksa — deo parafraza `gemma3:4b` ispadne tik iznad (0,215–0,283), a poslušnik ima samo
   3 komentara; sa 0,25 16/16 u tri izvođenja. Nijedan čitalac ni CGNAT emulatora ni na 0,28 nema
   ivicu. Šabloni iste uloge (od 0,242) se pod pragom dodiruju, ali to samo dodaje parove — ivicu
-  ne briše, jer se broje komentari, ne klasteri. Otvoreno: popularne fraze na velikom portalu
-  (publika emulatora piše o članku, ne opšte fraze).
+  ne briše, jer se broje komentari, ne klasteri.
+- **Popularne fraze nisu šablon.** Na velikom portalu dosta čitalaca napiše i „Bravo!" i „Tako
+  je!" na dva članka — dva para između dva prefiksa, isto kao kod klake (izmereno,
+  `popularne-fraze`: 5 lažnih presuda, bez klake u izvođenju). Razlika je ko još piše istu
+  frazu: grupa oko čvora sa bar 5 prefiksa (veličina kohorte), od kojih manje od polovine može
+  imati ivicu, je fraza publike — uglavnom pojedinaca sa jednim komentarom. Njeni komentari ne
+  ulaze u graf, u dva prolaza: prvi ih nađe po svim grupama (i oko čvorišta kopija), drugi
+  ponovo računa ko može imati ivicu bez njih — inače bi ih direktne veze iz drugog kNN-a vratile
+  kroz grupu u kojoj su svi „mogući". Posle: `popularne-fraze` bez ijedne presude;
+  `popularne-fraze-uz-klaku` 16/16 prefiksa klake za 29 s, publika i CGNAT bez presude. Klaka
+  koja za šablon uzme baš opštu frazu se iza publike sakrije — opšta fraza je ionako slab dokaz.
 - **MinHash ide prvi** (Rust, bez modela): copy-paste i sitne izmene hvata jeftino, i radi i
   kad Ollama nije dostupna. Kandidati se biraju preko LSH (16 traka po 4 reda: par sličnosti
   0,7 postaje kandidat sa 99%, nepovezan tekst sa 0,2%), ne poređenjem svakog para — 6000
@@ -321,7 +330,7 @@ pretnji i psovki; laptop Intel Core 5 210H, 30 GB RAM, CPU):
 
 | Korak | Šta | Zašto ovim redom |
 | --- | --- | --- |
-| 1 | PoC bez LLM-a | token + honeypot + kohorte moraju da rade sami |
+| 1 | PoC bez LLM-a | token + kohorte moraju da rade sami |
 | 2 | **E1 embeddings** + grupisanje šablona | najveća korist, najmanji trošak, bez generativnog modela |
 | 3 | G1 profil posta u **shadow** režimu | čuva se i poredi, ništa ne zavisi od njega |
 | 4 | G2 i G3 | tek kad postoje klasteri i red za pregled — urađeno jednim pozivom (§5b); merenje (§7) predstoji |

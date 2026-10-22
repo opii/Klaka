@@ -1,0 +1,35 @@
+{
+  "name": "popularne-fraze",
+  "level": 3,
+  "votes": 0,
+  "mirror": false,
+  "window_s": 10,
+  "prefixes": 1,
+  "delay_ms": {
+    "median": 800,
+    "sigma": 0.4
+  },
+  "token_wait_ms": 2500,
+  "token_per_vote": true,
+  "dwell_ms": {
+    "median": 1500,
+    "sigma": 0.3
+  },
+  "roles": {},
+  "targets": {
+    "push": [],
+    "sink": []
+  },
+  "audience": {
+    "readers": 150,
+    "cgnat": 20,
+    "span_s": 300,
+    "read_ms": {
+      "median": 6000,
+      "sigma": 0.6
+    },
+    "vote_p": 0.3,
+    "comment_p": 0.8,
+    "popular": 0.6
+  }
+}

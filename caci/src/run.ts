@@ -8,7 +8,7 @@ import { chromium } from "playwright-core";
 import { browserOperative } from "./browser.js";
 import { Prefixes } from "./net.js";
 import { ROLES, sample, schedule, type Level, type Profile, type Role, type Side } from "./profile.js";
-import { PERSONAS, pseudonym, templated, TEMPLATES, type Paraphraser, type Writer } from "./texts.js";
+import { PERSONAS, POPULAR, pseudonym, templated, TEMPLATES, type Paraphraser, type Writer } from "./texts.js";
 
 export interface Target {
   portalUrl: string;
@@ -272,7 +272,8 @@ async function prepareReaderTexts(
   p: Profile, target: Target, posts: string[], writer?: Writer,
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
-  const share = p.audience.comment_p ?? 0;
+  // Opšte fraze (`audience.popular`) se biraju iz liste, ne pišu se modelom.
+  const share = (p.audience.comment_p ?? 0) * (1 - (p.audience.popular ?? 0));
   if (share === 0) return out;
   if (!writer) throw new Error("komentari publike traže Ollama (CACI_OLLAMA_URL)");
   const res = await fetch(`${target.portalUrl}/api/posts`);
@@ -416,7 +417,11 @@ async function read(ctx: Ctx, a: Actor, comments: PortalComment[]): Promise<void
     if (token) await browserEvent(target, a, viewEvent(token, post));
     const readMs = sample(p.audience.read_ms);
     await sleep(readMs);
-    const text = Math.random() < (p.audience.comment_p ?? 0) ? ctx.readerTexts.get(post)?.pop() : undefined;
+    const text = Math.random() >= (p.audience.comment_p ?? 0)
+      ? undefined
+      : Math.random() < (p.audience.popular ?? 0)
+        ? pick(POPULAR)
+        : ctx.readerTexts.get(post)?.pop();
     if (text) {
       // Kucanje: oko 200 ms po znaku, uz poneku ispravku.
       const typingMs = Math.round(text.length * 200 * (0.8 + Math.random() * 0.6));

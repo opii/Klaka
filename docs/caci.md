@@ -205,7 +205,9 @@ parafraza šablona iz lokalnog LLM-a, napravljena pre početka — kao spisak ko
 dobiju za smenu). Publika: `readers` čitalaca (svaki čita 1–3 članka), `cgnat` čitalaca iza
 jednog prefiksa, verovatnoće glasa (`vote_p`) i komentara (`comment_p`). Komentare publike piše
 lokalni LLM pre početka: o naslovu članka, u grupama sa različitim „ličnostima", svaki se koristi
-jednom. Organski tekst tako ne liči na šablon — prva verzija ih je sastavljala iz delova, pa su
+jednom. `audience.popular` je udeo komentara publike koji su kratka opšta fraza iz liste
+(„Svaka čast!", „Tako je!") — kakve na velikom portalu pišu i pravi čitaoci, pa su rizik za
+grafove šablona. Organski tekst tako ne liči na šablon — prva verzija ih je sastavljala iz delova, pa su
 deljene rečenice izgledale kao kopije (udaljenost 0,04) i publika je ličila na klaku.
 
 ---
