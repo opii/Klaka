@@ -38,6 +38,9 @@ klaka.onModeration(commentId, "rejected", reason);                // oznake za e
 
 Portal korisniku vraća **isti odgovor** za `count` i `shadow` (spec README, princip 3).
 
+Ako portal ima nalog ili sopstveni ID posetioca, prosleđuje `cid: cidOf(salt, id)` u zahtevu
+(`sdk.md` §4): pun ID ne napušta portal, a SDK čita i presudu po `cid` ključu.
+
 `onVote` radi ceo tok iz `sdk.md` §2: token, brojač upotreba prikaza, jedan glas po (`vid`,
 cilj) (§2a), presude, odluka, pa događaj collector-u u pozadini. `onComment` je isti tok, bez
 pravila jednog glasa po cilju. `retro` čita akcije koje je engine uz presudu poslao u naknadni
@@ -64,7 +67,7 @@ Delovi su dostupni i pojedinačno (`TokenVerifier`, `parseVerdict`, `strongest`,
 
 | Gotovo | Sledi |
 | --- | --- |
-| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), naknadni shadow (`retro`), `onPromotion`, `onPost`, `onModeration`, slanje događaja — ceo javni API iz `sdk.md` §1 | SDK-ovi za druge jezike (`sdk/php`, `sdk/go`, `sdk/java`) |
+| provera tokena (34/34 zajedničkih vektora), `onVote` i `onComment` sa Valkey-jem (upotrebe, ponovljen glas, presude), naknadni shadow (`retro`), `onPromotion`, `onPost`, `onModeration`, `cid` (`cidOf`, presuda po `cid` ključu), slanje događaja — ceo javni API iz `sdk.md` §1 | SDK-ovi za druge jezike (`sdk/php`, `sdk/go`, `sdk/java`) |
 
 ```bash
 docker compose run --rm -w /work/sdk/node node npm test   # iz korena repoa
