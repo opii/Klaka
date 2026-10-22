@@ -86,6 +86,10 @@ Potpis operatera, na primer: `keys = "0"`, `pasted = true`, `length = "201-1000"
 
 ### `honeypot` — interakcija sa mamac-elementom
 
+**Rezervisano — v1 ga ne šalje.** Honeypot elementi su svesno van opsega: autofill i menadžeri
+lozinki popunjavaju mamac-polja, pa lažno označe običnog čitaoca (koncept §10). Tip ostaje
+definisan da collector i budući senzor imaju isti ugovor.
+
 | Polje | Tip | Napomena |
 | --- | --- | --- |
 | `hp` | string | ID mamca (nasumičan po prikazu; server zna koji su mamci) |

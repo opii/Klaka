@@ -128,10 +128,10 @@ Svaki SDK ih prolazi u CI-ju. `klaka-core` u WASM-u ostaje opcija za edge varija
 
 - TypeScript, nula runtime zavisnosti, bundle **esbuild**; budžet **≤ 8 KB gzip**.
 - Isporuka: `klaka.min.js` (IIFE, za `<script>`) + ESM build.
-- Testovi: **Vitest** (jedinice) + **Playwright** (pravi browser: honeypot, skrol, headless potpis).
+- Testovi: **Vitest** (jedinice) + **Playwright** (pravi browser: skrol, `seen`, `compose`, headless potpis).
 - Obim: događaji (prikaz, oblik skrolovanja, dwell, prva interakcija), dohvatanje tokena posle
-  učitavanja (zbog CDN keša), honeypot elementi (`aria-hidden`, `tabindex=-1`), nasumičan DOM,
-  slanje preko `sendBeacon`. **Nikakva logika odlučivanja** — napadač čita ovaj kod.
+  učitavanja (zbog CDN keša), nasumičan DOM, slanje preko `sendBeacon`. Honeypot elementi su
+  svesno van opsega (koncept §10: autofill i menadžeri lozinki daju lažne pozitive). **Nikakva logika odlučivanja** — napadač čita ovaj kod.
 
 ---
 

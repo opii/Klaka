@@ -55,4 +55,7 @@ docker compose run --rm e2e                  # u pravom browseru, kroz demo port
 
 | Gotovo | Sledi |
 | --- | --- |
-| token pregleda, upis u forme, zaglavlje; `view`, `engage` (+`seen`), `compose` | `honeypot` elementi, nasumičan DOM, canary parametar (`variant`) |
+| token pregleda, upis u forme, zaglavlje; `view`, `engage` (+`seen`), `compose` | nasumičan DOM, canary parametar (`variant`) |
+
+`honeypot` elementi su svesno van opsega: autofill i menadžeri lozinki popunjavaju mamac-polja
+i lažno označe čitaoca (koncept §10).

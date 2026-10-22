@@ -130,8 +130,8 @@ Za engine to znači jednostavnu strukturu: detektori proizvode kohorte po dimenz
   „Glas bez čitanja" postaje pravilo, ne samo signal. Direktno pogađa automatsko glasanje
   preko `fetch`/`FormData` zahteva, bez učitavanja stranice.
 - **Honeypot elementi.** Nevidljiva dugmad za glasanje i mamac-polja u formi za komentar.
-  Čovek ih ne vidi; skripta koja traži elemente preko XPath-a ih klikne. Ovo je retka
-  prilika za **pouzdan ground truth** — svaki takav klik je sigurno automatizacija.
+  Čovek ih ne vidi; skripta koja traži elemente preko XPath-a ih klikne. Zamišljeno kao
+  **pouzdan ground truth** — ali svesno van opsega, jer u stvarnim browserima nije pouzdan (§10).
 - **Nasumičan DOM.** ID-jevi i struktura dugmadi menjaju se po prikazu. XPath skripte
   (`document.evaluate`) prestaju da rade; napadač mora stalno da ih održava.
 - **Shadow counting.** Glasovi označene kohorte vide se samo njihovom izvoru, javni brojač
@@ -183,7 +183,7 @@ Tri izvora oznaka, po pokrivenosti:
 | Izvor | Šta pokriva | Šta ne pokriva |
 | --- | --- | --- |
 | **Istorija moderacije** | i automatizaciju i **ljude u smenama** (verovatno najvažniji oblik napada) | glasove (moderator ih ne vidi); šum: moderator odbija i legitimne uvrede |
-| Honeypot klikovi, glasovi bez tokena | čiste oznake automatizacije | ljude — operater u smeni nikad ne klikne honeypot |
+| Glasovi bez tokena (honeypot je van opsega, §10) | čiste oznake automatizacije | ljude — operater u smeni uvek ima token |
 | Simulator napadača (obrasci: latencije, smene, pseudonimi, šabloni, ASN miks) | kontrolisani eksperimenti, pokrivenost retkih scenarija | realizam — simulacija zna samo ono što smo mi znali |
 
 Lažni pozitivi se mere isključivo na legitimnoj publici portala — to je jedino mesto gde
@@ -204,8 +204,8 @@ cevovoda sa zajedničkim slojem kohorte**:
 | | **Glasovi** | **Komentari** |
 | --- | --- | --- |
 | Priroda | anonimni, jeftini, masovni, bez teksta | tekst + pseudonim, manji obim |
-| Primarni signali | token pregleda, odnos glas/prikaz, infrastruktura (ASN × vreme × klijent), honeypot | šabloni (MinHash), stilometrija, pseudonimi, ponavljanje kohorte, odluke moderatora |
-| Ground truth | honeypot, token | istorija moderacije |
+| Primarni signali | token pregleda, odnos glas/prikaz, infrastruktura (ASN × vreme × klijent) | šabloni (MinHash), stilometrija, pseudonimi, ponavljanje kohorte, odluke moderatora |
+| Ground truth | token, emulator klake | istorija moderacije |
 | Mera | shadow counting, proof-of-work | red za pregled; nikad automatsko brisanje |
 | Zajedničko | → sloj kohorte: isti /24 + otisak + ritam na oba cevovoda | ← |
 
@@ -250,7 +250,7 @@ odgovora**, a ne po tome šta je nama lako da napravimo.
 | Mera | Najjeftiniji odgovor napadača | Preostala cena za napadača |
 | --- | --- | --- |
 | token pregleda | učitati celu stranicu pre svakog glasa | ~10–50× više saobraćaja po glasu; glas više nije „besplatan" `fetch` |
-| honeypot | vizuelna detekcija elemenata (screenshot + OCR / računarski vid) | sa „jedna XPath skripta za sve" na „održavanje po portalu i po redizajnu" |
+| honeypot (van opsega, §10) | vizuelna detekcija elemenata (screenshot + OCR / računarski vid) | sa „jedna XPath skripta za sve" na „održavanje po portalu i po redizajnu" |
 | nasumičan DOM | isto kao gore, ili ciljanje po tekstu dugmeta | stalno održavanje; svaki redizajn portala obara skriptu |
 | shadow counting | poređenje brojača iz dva izvora (jedan „čist", jedan iz kohorte) | otkrivanje traži disciplinu i vreme; dok ne otkrije, troši ljude na ništa |
 | ponavljanje kohorte | **više ljudi**, raznolikiji raspored | nema jeftinog odgovora — ovo je invarijanta 1 |
@@ -269,9 +269,14 @@ cenu ljudima. Zato su u jezgru (§13) i jedno i drugo.
   učitavanja.
 - **Nasumičan DOM** ima isti sudar sa keširanjem, plus lomi analitičke i A/B alate koji
   gađaju selektore. Realno se izvodi **na klijentu posle učitavanja**, ne na serveru.
-- **Honeypot elementi** moraju imati `aria-hidden="true"` i `tabindex="-1"`, inače ih
-  čitači ekrana izlože korisniku i slepe korisnike označimo kao botove. Takođe ne smeju
-  biti u fokusnom redosledu tastature.
+- **Honeypot elementi — svesno van opsega.** Mamac-polja u formi popunjavaju automatsko
+  popunjavanje browsera i menadžeri lozinki: popune i skriveno polje po imenu ili tipu, bez
+  ikakve namere korisnika. Nevidljiva dugmad aktiviraju čitači ekrana, ekstenzije i alati
+  pristupačnosti (i sa `aria-hidden="true"` i `tabindex="-1"` nije garantovano). Lažni pozitiv
+  tu pogađa baš običnog čitaoca, a mera je trebalo da bude „siguran" ground truth — znak koji se
+  ne preispituje. Uz to je hvatala samo skripte (XPath): pravi browser sa klikom na vidljivo
+  dugme (nivo 2 i više, `docs/caci.md`) je zaobilazi, a skripte već hvata token. Ground truth daju
+  token i emulator klake. Tip događaja `honeypot` ostaje rezervisan u `events.md`.
 - **Token ne eliminiše napad, samo diže cenu** (§9). Cilj mere je poskupljenje, ne blokada.
   Očekivati da napadač pređe na puno učitavanje stranice i planirati da to vidimo kao novi
   signal (odnos prikaz/glas naglo postaje „savršen").
@@ -308,11 +313,11 @@ perspektive) sistem mora dati statistički isti signal.
 1. **Retroaktivna analiza istorije komentara + odluka moderatora** (§6) — bez nove
    telemetrije, odgovara na pitanje „postoji li struktura u podacima".
 2. **Token pregleda za glas** (§3, §10)
-3. **Honeypot elementi** (§3, §10)
+3. ~~**Honeypot elementi**~~ — svesno van opsega (§10): autofill i menadžeri lozinki daju lažne pozitive.
 4. **Graf ponavljanja kohorte nad pseudo-identitetima** (§1, §7)
 
-Prvo je dijagnostika i ne košta ništa osim pristupa podacima. Drugo i treće su jeftini,
-odmah daju pouzdane oznake i teško im se prilagoditi. Četvrto hvata ljude u smenama, koje
+Prvo je dijagnostika i ne košta ništa osim pristupa podacima. Drugo je jeftino, odmah daje
+pouzdane oznake i teško mu se prilagoditi. Četvrto hvata ljude u smenama, koje
 fingerprint nikad ne uhvati.
 
 ---
