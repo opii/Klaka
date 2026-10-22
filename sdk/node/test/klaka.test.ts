@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { Klaka, MemoryStore, type EventSender, type ServerEvent, type Store } from "../src/index.js";
+import { Klaka, MemoryStore, cidOf, type EventSender, type ServerEvent, type Store } from "../src/index.js";
 
 const vectors = JSON.parse(
   readFileSync(fileURLToPath(new URL("../../../../core/spec/test-vectors/token.json", import.meta.url)), "utf8"),
@@ -170,4 +170,25 @@ test("moderacija: odluka i razlog, bez identiteta moderatora", () => {
     { type: "moderation", t: NOW, comment: "c1", result: "rejected", reason: "uvreda" },
     { type: "moderation", t: NOW, comment: "c2", result: "approved", reason: null },
   ]);
+});
+
+test("cid (sdk.md §4): heš iz ID-ja i soli, u događaju, i presuda po cid ključu važi", async () => {
+  const cid = cidOf("so-portala", "nalog-42");
+  assert.equal(cid, cidOf("so-portala", "nalog-42"));
+  assert.notEqual(cid, cidOf("druga-so", "nalog-42"));
+  assert.match(cid, /^[A-Za-z0-9_-]{22}$/);
+
+  const store = new MemoryStore(() => NOW);
+  const { klaka, sent } = setup(store);
+  assert.equal((await klaka.onVote({ ...req(), cid }, vote("c1"))).decision, "count");
+  assert.equal(sent[0]!.type === "vote" && sent[0]!.cid, cid);
+
+  store.set(`klaka:v1:demo.local:cid:${cid}`, JSON.stringify({ action: "shadow", until_ms: NOW + 1 }), 60_000);
+  const after = await klaka.onComment({ ...req(), cid }, { post: POST, comment: "k1", author: "A", text: "t", replyTo: null });
+  assert.deepEqual([after.decision, after.action], ["shadow", "shadow"]);
+  const other = await klaka.onVote(req(), vote("c2"));
+  assert.equal(other.decision, "count", "drugi posetilac sa iste mreže");
+
+  await klaka.onVote({ ...req(), cid: "pun ID sa razmacima" }, vote("c3"));
+  assert.ok(!("cid" in sent.at(-1)!), "neispravan cid se ne šalje");
 });

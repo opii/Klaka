@@ -1,5 +1,7 @@
 // Ceo tok jedne akcije (sdk.md §2): token → stanje u Valkey-ju → odluka → događaj.
 
+import { createHash } from "node:crypto";
+
 import { truncateUa, type EventSender } from "./events.js";
 import { netPrefix } from "./net.js";
 import type { Store, StreamEntry } from "./store.js";
@@ -26,6 +28,21 @@ export interface ClientRequest {
   /** IP klijenta, posle pouzdanog proxy-ja. Ne napušta portal — dalje ide samo prefiks. */
   ip: string;
   ua: string | undefined;
+  /**
+   * Opciono (sdk.md §4): first-party ID posetioca (nalog, kolačić), već heširan — `cidOf`.
+   * Sa njim engine vidi istog posetioca kroz postove, a važi i presuda po `cid` ključu.
+   */
+  cid?: string | null;
+}
+
+/** `cid` po sdk.md §4: base64url(SHA-256(portal_salt ‖ id)), prva 22 znaka. Pun ID ne napušta portal. */
+export function cidOf(salt: string, id: string): string {
+  return createHash("sha256").update(salt).update(id).digest("base64url").slice(0, 22);
+}
+
+/** `cid` kakav SDK prosleđuje: samo base64url znaci, inače bez njega. */
+function cleanCid(cid: string | null | undefined): string | null {
+  return cid && /^[A-Za-z0-9_-]{8,64}$/.test(cid) ? cid : null;
 }
 
 export interface VoteInput {
@@ -125,8 +142,9 @@ export class Klaka {
     let v = this.#verifier.verify(req.token, vote.post, now);
     const vid = v.payload?.vid ?? null;
     const net = netPrefix(req.ip);
+    const cid = cleanCid(req.cid);
 
-    const state = await this.#state(vid, vote.target, net);
+    const state = await this.#state(vid, vote.target, net, cid);
     if (state.uses !== null) v = this.#verifier.checkUses(v, state.uses);
     const decision = state.repeat === true ? "shadow" : decide(v.result, state.action);
 
@@ -134,7 +152,7 @@ export class Klaka {
       this.#cfg.events.send({
         type: "vote", t: now, post: vote.post, vid, token: v.result, uses: state.uses, decision, net,
         ua: truncateUa(req.ua), target: vote.target, target_author: vote.targetAuthor, dir: vote.dir,
-        repeat: state.repeat,
+        repeat: state.repeat, ...(cid && { cid }),
       });
     }
     return { decision, vid, token: v.result, uses: state.uses, repeat: state.repeat, action: state.action };
@@ -149,8 +167,9 @@ export class Klaka {
     let v = this.#verifier.verify(req.token, c.post, now);
     const vid = v.payload?.vid ?? null;
     const net = netPrefix(req.ip);
+    const cid = cleanCid(req.cid);
 
-    const state = await this.#state(vid, null, net);
+    const state = await this.#state(vid, null, net, cid);
     if (state.uses !== null) v = this.#verifier.checkUses(v, state.uses);
     const decision = decide(v.result, state.action);
 
@@ -158,6 +177,7 @@ export class Klaka {
       this.#cfg.events.send({
         type: "comment", t: now, post: c.post, vid, token: v.result, uses: state.uses, decision, net,
         ua: truncateUa(req.ua), comment: c.comment, author: c.author, text: c.text, reply_to: c.replyTo,
+        ...(cid && { cid }),
       });
     }
     return { decision, vid, token: v.result, uses: state.uses, action: state.action };
@@ -207,15 +227,15 @@ export class Klaka {
 
   /**
    * Koraci 2–3 u jednom krugu do Valkey-ja, u budžetu; svaki kvar je „nedostupan" (fail-open).
-   * `target` samo za glas (ponovljen glas, §2a).
+   * `target` samo za glas (ponovljen glas, §2a). Presude: po prefiksu, prikazu i `cid`-u.
    */
-  async #state(vid: string | null, target: string | null, net: string | null): Promise<State> {
+  async #state(vid: string | null, target: string | null, net: string | null, cid: string | null): Promise<State> {
     const store = this.#cfg.store;
     if (!store) return UNAVAILABLE;
     const ttl = this.#verifier.policy.maxAgeMs;
-    const verdictKeys = [net && `${this.#prefix}net:${net}`, vid && `${this.#prefix}vid:${vid}`].filter(
-      (k): k is string => !!k,
-    );
+    const verdictKeys = [
+      net && `${this.#prefix}net:${net}`, vid && `${this.#prefix}vid:${vid}`, cid && `${this.#prefix}cid:${cid}`,
+    ].filter((k): k is string => !!k);
     const work = Promise.all([
       vid ? store.incr(`${this.#prefix}uses:${vid}`, ttl) : null,
       vid && target !== null ? store.setNx(`${this.#prefix}voted:${vid}:${target}`, ttl) : null,

@@ -1,7 +1,7 @@
 // HTML portala. Sve promenljive vrednosti prolaze kroz esc().
 
 import { SECTIONS, sectionOf, type Post } from "./content.js";
-import type { Comment, Vote } from "./db.js";
+import type { Account, Comment, Vote } from "./db.js";
 import { PAGE, SORTS, type Sort, type Thread } from "./thread.js";
 
 export function esc(s: string | number | null | undefined): string {
@@ -63,12 +63,26 @@ const STYLE = `
   table { border-collapse: collapse; width: 100%; font: 13px system-ui, sans-serif }
   td, th { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left }
   .count { color: #1a7f37 } .shadow { color: #b35900 }
+  .user { margin-left: auto; font-size: 14px; color: var(--muted); display: flex; gap: 10px; align-items: baseline }
+  .user form { display: inline; border: none; padding: 0 }
+  .user button { border: none; padding: 0; color: var(--accent); font-size: 14px }
+  .reg { color: #1a7f37; font-size: 12px; margin-left: 4px }
+  .err { color: #b3261e; font-size: 14px }
+  .narrow { max-width: 360px }
 `;
 
-function layout(o: { title: string; head?: string; body: string; section?: string; wide?: boolean; portal: string }): string {
+/** Ko gleda stranicu (za zaglavlje): prijavljen nalog ili niko. */
+export type User = Account | null;
+
+function layout(o: {
+  title: string; head?: string; body: string; section?: string; wide?: boolean; portal: string; user: User;
+}): string {
   const nav = SECTIONS.map(
     (s) => `<a href="/r/${esc(s.slug)}"${s.id === o.section ? ' class="on"' : ""}>${esc(s.name)}</a>`,
   ).join("");
+  const user = o.user
+    ? `<span class="user">${esc(o.user.pseudonym)}<form method="post" action="/odjava"><button>Odjava</button></form></span>`
+    : `<span class="user"><a href="/prijava">Prijava</a><a href="/registracija">Registracija</a></span>`;
   return `<!doctype html>
 <html lang="sr">
 <head>
@@ -79,7 +93,7 @@ function layout(o: { title: string; head?: string; body: string; section?: strin
 ${o.head ?? ""}
 </head>
 <body>
-<header><div class="bar"><a class="logo" href="/">${esc(o.portal)}</a><nav>${nav}</nav></div></header>
+<header><div class="bar"><a class="logo" href="/">${esc(o.portal)}</a><nav>${nav}</nav>${user}</div></header>
 <main${o.wide ? ' class="wide"' : ""}>
 ${o.body}
 </main>
@@ -102,7 +116,7 @@ function storyLink(p: Post, comments: number, big = false): string {
 }
 
 /** Naslovna: glavna vest, najnovije, najkomentarisanije i blok po rubrici. */
-export function homePage(o: { portal: string; posts: Post[]; comments: Map<string, number> }): string {
+export function homePage(o: { portal: string; user: User; posts: Post[]; comments: Map<string, number> }): string {
   const count = (p: Post) => o.comments.get(p.id) ?? 0;
   const newest = [...o.posts].sort((a, b) => b.id.localeCompare(a.id));
   const [lead, ...rest] = newest;
@@ -115,6 +129,7 @@ export function homePage(o: { portal: string; posts: Post[]; comments: Map<strin
   }).join("");
   return layout({
     portal: o.portal,
+    user: o.user,
     title: o.portal,
     wide: true,
     body: lead
@@ -132,10 +147,13 @@ export function homePage(o: { portal: string; posts: Post[]; comments: Map<strin
 }
 
 /** Rubrika: svi članci, noviji prvi. */
-export function sectionPage(o: { portal: string; section: string; name: string; posts: Post[]; comments: Map<string, number> }): string {
+export function sectionPage(o: {
+  portal: string; user: User; section: string; name: string; posts: Post[]; comments: Map<string, number>;
+}): string {
   const list = [...o.posts].sort((a, b) => b.id.localeCompare(a.id));
   return layout({
     portal: o.portal,
+    user: o.user,
     title: `${o.name} — ${o.portal}`,
     section: o.section,
     wide: true,
@@ -147,7 +165,7 @@ export function sectionPage(o: { portal: string; section: string; name: string; 
 function commentBox(c: Comment, reply: boolean): string {
   return `
       <div class="c${reply ? " reply" : ""}" id="${esc(c.id)}" data-comment="${esc(c.id)}" data-klaka-comment="${esc(c.id)}">
-        <div><div class="a">${esc(c.author)}<span class="when">${esc(when(c.t))}</span></div><div>${esc(c.text)}</div>
+        <div><div class="a">${esc(c.author)}${c.account !== null ? '<span class="reg" title="Registrovan nalog">✓</span>' : ""}<span class="when">${esc(when(c.t))}</span></div><div>${esc(c.text)}</div>
           <button class="answer" type="button" data-reply="${esc(c.id)}" data-author="${esc(c.author)}">Odgovori</button></div>
         <div class="v">
           <button data-dir="1" aria-label="Plus za komentar">+</button>
@@ -158,6 +176,7 @@ function commentBox(c: Comment, reply: boolean): string {
 }
 
 export function articlePage(o: {
+  user: User;
   apiPublic: string;
   /** klaka-collector iz browsera; prazno = događaji se ne šalju. */
   collectorPublic: string;
@@ -187,8 +206,12 @@ export function articlePage(o: {
   const section = sectionOf(o.post.section);
   const snippet = `<script src="/klaka.min.js" data-api="${esc(o.apiPublic)}"${o.collectorPublic ? ` data-collector="${esc(o.collectorPublic)}"` : ""} data-portal="${esc(o.portal)}" data-post="${esc(o.post.id)}" async></script>`;
 
+  const name = o.user
+    ? `<label>Ime <input name="author" value="${esc(o.user.pseudonym)}" readonly></label>`
+    : `<label>Ime <input name="author" maxlength="40" required autocomplete="nickname"></label>`;
   return layout({
     portal: o.portal,
+    user: o.user,
     title: o.post.title,
     head: snippet,
     section: o.post.section,
@@ -206,8 +229,9 @@ export function articlePage(o: {
     <form id="komentar" data-post="${esc(o.post.id)}">
       <input type="hidden" name="reply_to" value="">
       <div class="to" hidden>Odgovor za <strong data-to></strong> · <a href="#" data-cancel>otkaži</a></div>
-      <label>Ime <input name="author" maxlength="40" required autocomplete="nickname"></label>
+      ${name}
       <label>Komentar <textarea name="text" rows="4" maxlength="2000" required data-klaka-compose></textarea></label>
+      <div class="err" hidden></div>
       <button type="submit">Pošalji</button>
     </form>
   </section>
@@ -252,11 +276,40 @@ export function articlePage(o: {
     const res = await fetch("/api/comment", { method: "POST", headers: await klakaHeaders(),
       body: JSON.stringify({ post: form.dataset.post, author: form.author.value, text: form.text.value,
         reply_to: form.reply_to.value || null }) });
-    if (!res.ok) return;
-    const { id } = await res.json();
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = form.querySelector(".err");
+      err.textContent = body.error === "zauzeto"
+        ? "Ime pripada registrovanom nalogu — prijavite se ili izaberite drugo."
+        : "Komentar nije poslat.";
+      err.hidden = false;
+      return;
+    }
+    const { id } = body;
     location.href = location.pathname + "?komentar=" + encodeURIComponent(id) + "#" + encodeURIComponent(id);
   });
 </script>`,
+  });
+}
+
+/** Prijava ili registracija; `next` je stranica na koju se vraća. */
+export function accountPage(o: { portal: string; user: User; mode: "prijava" | "registracija"; next: string; error?: string }): string {
+  const login = o.mode === "prijava";
+  return layout({
+    portal: o.portal,
+    user: o.user,
+    title: login ? "Prijava" : "Registracija",
+    body: `<div class="narrow"><h1>${login ? "Prijava" : "Registracija"}</h1>
+  ${o.error ? `<p class="err">${esc(o.error)}</p>` : ""}
+  <form method="post" action="/${o.mode}">
+    <input type="hidden" name="next" value="${esc(o.next)}">
+    <label>Pseudonim <input name="pseudonym" required minlength="3" maxlength="40" autocomplete="username"></label>
+    <label>Lozinka <input name="password" type="password" required minlength="8" autocomplete="${login ? "current-password" : "new-password"}"></label>
+    <button type="submit">${login ? "Prijavi se" : "Napravi nalog"}</button>
+  </form>
+  <p class="meta">${login
+    ? `Nemate nalog? <a href="/registracija?next=${encodeURIComponent(o.next)}">Registracija</a>. Komentarisati možete i bez naloga.`
+    : `Nalog daje stalan pseudonim (oznaka ✓ uz komentar). Komentarisati možete i bez njega.`}</p></div>`,
   });
 }
 
@@ -284,6 +337,7 @@ export function adminPage(o: { portal: string; votes: Vote[]; comments: Comment[
     .join("");
   return layout({
     portal: o.portal,
+    user: null,
     title: "Demo admin",
     wide: true,
     body: `<div class="kicker">Samo za demo</div>

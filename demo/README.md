@@ -22,7 +22,7 @@ hiljade. Zbir je onaj koji vidi posetilac, pa poslušnik vidi svoj gurnut koment
 
 ```bash
 docker compose up -d --build demo     # http://localhost:18082  (+ /admin)
-docker compose run --rm e2e           # 8 testova u pravom browseru (Chromium)
+docker compose run --rm e2e           # 9 testova u pravom browseru (Chromium)
 ```
 
 | Šta pokazuje | Ishod |
@@ -41,9 +41,16 @@ Glas obrađuje `Klaka.onVote`, a komentar `Klaka.onComment` iz `@klaka/sdk-node`
 Svaki glas i komentar ide i u `klaka-collector` kao `vote` / `comment` događaj (sa prefiksom
 mreže, ne punim IP-jem); pri startu demo javlja `post` za svaki članak, sa tekstom.
 
-`shadow` komentar vidi samo njegov autor, prepoznat po kolačiću `demo_sid` (pravi portal ima
-nalog ili sesiju); za ostale ne postoji — ni na stranici, ni u `/api/comments`, ni za glas, ni
-kao roditelj odgovora.
+Nalog je opcion, kao na većini portala u regionu: komentar i glas i bez njega (pseudonim uz
+komentar), a nalog (`/registracija`, `/prijava`, `/odjava`) daje stalan pseudonim sa oznakom ✓ i
+`cid` (`sdk.md` §4: `cidOf(PORTAL_CID_SALT, nalog)`), pa engine vidi istog posetioca kroz postove.
+Registrovan pseudonim anonimni komentator ne može da koristi. Lozinke: `scrypt` sa solju po
+nalogu; prijava menja kolačić sesije (zaštita od fiksiranja), a anonimne akcije sa uređaja prelaze
+na novi kolačić.
+
+`shadow` komentar vidi samo njegov autor — sa istog uređaja (kolačić `demo_sid`) ili, prijavljen,
+sa svog naloga; za ostale ne postoji — ni na stranici, ni u `/api/comments`, ni za glas, ni kao
+roditelj odgovora.
 
 Naknadni shadow (`verdicts.md` §5): svake 2 s demo čita `Klaka.retro` i akcije koje je engine
 uz presudu poslao prebacuje u shadow — komentar nestaje iz javnog prikaza (autoru ostaje), glas

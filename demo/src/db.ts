@@ -27,6 +27,19 @@ export interface Comment {
   token: string | null;
   /** Prebačen u shadow naknadno (verdicts.md §5), posle odluke `count`. */
   retro: boolean;
+  /** Nalog autora; `null` za anonimni komentar (pseudonim uz komentar). */
+  account: number | null;
+}
+
+/** Ko gleda: kolačić sesije i nalog, ako je prijavljen. */
+export interface Viewer {
+  sid: string | null;
+  account: number | null;
+}
+
+export interface Account {
+  id: number;
+  pseudonym: string;
 }
 
 export interface Vote {
@@ -42,6 +55,7 @@ export interface Vote {
   repeat: boolean | null;
   decision: Decision;
   retro: boolean;
+  account: number | null;
 }
 
 const MIGRATIONS = new URL("../migrations/", import.meta.url);
@@ -97,9 +111,9 @@ export class Db {
 
   async insertComment(c: Comment): Promise<void> {
     await this.pool.query(
-      `INSERT INTO comments (id, post, reply_to, author, text, t, decision, owner, token)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [c.id, c.post, c.reply_to, c.author, c.text, c.t, c.decision, c.owner, c.token],
+      `INSERT INTO comments (id, post, reply_to, author, text, t, decision, owner, token, account)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [c.id, c.post, c.reply_to, c.author, c.text, c.t, c.decision, c.owner, c.token, c.account],
     );
   }
 
@@ -108,13 +122,16 @@ export class Db {
     return r.rows[0] ? toComment(r.rows[0]) : null;
   }
 
-  /** Komentari posta koje posetilac `sid` vidi: javni i njegovi shadow (null = svi posti). */
-  async visibleComments(post: string | null, sid: string | null): Promise<Comment[]> {
+  /**
+   * Komentari posta koje posetilac vidi: javni i njegovi shadow — sa ovog uređaja (kolačić) i,
+   * ako je prijavljen, sa naloga (null post = svi postovi).
+   */
+  async visibleComments(post: string | null, viewer: Viewer): Promise<Comment[]> {
     const r = await this.pool.query(
       `SELECT ${COMMENT} FROM comments
-       WHERE ($1::text IS NULL OR post = $1) AND (decision = 'count' OR owner = $2)
+       WHERE ($1::text IS NULL OR post = $1) AND (decision = 'count' OR owner = $2 OR account = $3)
        ORDER BY t, id`,
-      [post, sid],
+      [post, viewer.sid, viewer.account],
     );
     return r.rows.map(toComment);
   }
@@ -128,12 +145,12 @@ export class Db {
   }
 
   /** Shadow glasovi posetioca po komentaru: njemu se zbir prikazuje sa njima (sdk.md §2). */
-  async ownShadowDeltas(sid: string, post: string | null): Promise<Map<string, number>> {
+  async ownShadowDeltas(viewer: Viewer, post: string | null): Promise<Map<string, number>> {
     const r = await this.pool.query<{ comment: string; d: string }>(
       `SELECT comment, sum(dir) AS d FROM votes
-       WHERE owner = $1 AND decision = 'shadow' AND ($2::text IS NULL OR post = $2)
+       WHERE (owner = $1 OR account = $3) AND decision = 'shadow' AND ($2::text IS NULL OR post = $2)
        GROUP BY comment`,
-      [sid, post],
+      [viewer.sid, post, viewer.account],
     );
     return new Map(r.rows.map((x) => [x.comment, Number(x.d)]));
   }
@@ -144,9 +161,9 @@ export class Db {
     try {
       await client.query("BEGIN");
       await client.query(
-        `INSERT INTO votes (t, owner, post, comment, dir, vid, token, uses, repeat, decision)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [v.t, v.owner, v.post, v.comment, v.dir, v.vid, v.token, v.uses, v.repeat, v.decision],
+        `INSERT INTO votes (t, owner, post, comment, dir, vid, token, uses, repeat, decision, account)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [v.t, v.owner, v.post, v.comment, v.dir, v.vid, v.token, v.uses, v.repeat, v.decision, v.account],
       );
       if (v.decision === "count") {
         await client.query("UPDATE comments SET score = score + $2 WHERE id = $1", [v.comment, v.dir]);
@@ -186,11 +203,13 @@ export class Db {
 
   async lastVotes(limit: number): Promise<Vote[]> {
     const r = await this.pool.query(
-      `SELECT * FROM (SELECT t, owner, post, comment, dir, vid, token, uses, repeat, decision, retro
+      `SELECT * FROM (SELECT t, owner, post, comment, dir, vid, token, uses, repeat, decision, retro, account
                       FROM votes ORDER BY id DESC LIMIT $1) x ORDER BY t`,
       [limit],
     );
-    return r.rows.map((x) => ({ ...x, t: Number(x.t), dir: x.dir === -1 ? -1 : 1 }) as Vote);
+    return r.rows.map(
+      (x) => ({ ...x, t: Number(x.t), dir: x.dir === -1 ? -1 : 1, account: x.account === null ? null : Number(x.account) }) as Vote,
+    );
   }
 
   async lastComments(limit: number): Promise<Comment[]> {
@@ -199,6 +218,69 @@ export class Db {
       [limit],
     );
     return r.rows.map(toComment);
+  }
+
+  // --- nalozi i sesije ------------------------------------------------------------------------
+
+  /** Nov nalog; `null` ako je pseudonim zauzet (bez obzira na velika slova). */
+  async createAccount(pseudonym: string, passwordHash: string): Promise<Account | null> {
+    const r = await this.pool.query<{ id: string }>(
+      `INSERT INTO accounts (pseudonym, pseudonym_key, password) VALUES ($1, lower($1), $2)
+       ON CONFLICT (pseudonym_key) DO NOTHING RETURNING id`,
+      [pseudonym, passwordHash],
+    );
+    return r.rows[0] ? { id: Number(r.rows[0].id), pseudonym } : null;
+  }
+
+  /** Nalog i zapis lozinke po pseudonimu (za proveru lozinke). */
+  async accountByPseudonym(pseudonym: string): Promise<(Account & { password: string }) | null> {
+    const r = await this.pool.query<{ id: string; pseudonym: string; password: string }>(
+      "SELECT id, pseudonym, password FROM accounts WHERE pseudonym_key = lower($1)",
+      [pseudonym],
+    );
+    const a = r.rows[0];
+    return a ? { id: Number(a.id), pseudonym: a.pseudonym, password: a.password } : null;
+  }
+
+  async pseudonymTaken(pseudonym: string): Promise<boolean> {
+    const r = await this.pool.query("SELECT 1 FROM accounts WHERE pseudonym_key = lower($1)", [pseudonym]);
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  async accountOfSession(sid: string): Promise<Account | null> {
+    const r = await this.pool.query<{ id: string; pseudonym: string }>(
+      "SELECT a.id, a.pseudonym FROM sessions s JOIN accounts a ON a.id = s.account WHERE s.sid = $1",
+      [sid],
+    );
+    const a = r.rows[0];
+    return a ? { id: Number(a.id), pseudonym: a.pseudonym } : null;
+  }
+
+  /**
+   * Prijava: nova sesija pod novim kolačićem (zaštita od fiksiranja sesije). Anonimne akcije sa
+   * starog kolačića prelaze na novi, pa autor i dalje vidi svoje shadow komentare i glasove.
+   */
+  async startSession(oldSid: string | null, newSid: string, account: number): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("INSERT INTO sessions (sid, account) VALUES ($1, $2)", [newSid, account]);
+      if (oldSid) {
+        await client.query("UPDATE comments SET owner = $2 WHERE owner = $1", [oldSid, newSid]);
+        await client.query("UPDATE votes SET owner = $2 WHERE owner = $1", [oldSid, newSid]);
+        await client.query("DELETE FROM sessions WHERE sid = $1", [oldSid]);
+      }
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async endSession(sid: string): Promise<void> {
+    await this.pool.query("DELETE FROM sessions WHERE sid = $1", [sid]);
   }
 
   async getState(key: string): Promise<string | null> {
@@ -218,10 +300,10 @@ export class Db {
   }
 }
 
-const COMMENT = "id, post, reply_to, author, text, score, t, decision, owner, token, retro";
+const COMMENT = "id, post, reply_to, author, text, score, t, decision, owner, token, retro, account";
 
 function toComment(r: Record<string, unknown>): Comment {
-  return { ...(r as unknown as Comment), t: Number(r.t) };
+  return { ...(r as unknown as Comment), t: Number(r.t), account: r.account === null ? null : Number(r.account) };
 }
 
 /** Pravi bazu iz `url` ako ne postoji (konekcijom na `postgres` istog servera). */
