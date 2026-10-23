@@ -2,7 +2,8 @@
 // više postova, kao na pravom portalu — ciljna dimenzija (koncept §2a) traži baš to: iste mete
 // (autore komentara) kroz postove. Prva četiri članka su pisana ručno (na njih ciljaju caci
 // profili, `c1`–`c16`); ostale je jednom napisao lokalni LLM (`scripts/write-articles.mjs`,
-// `content/articles.json`) — neutralne vesti iz izmišljenog grada.
+// `content/articles.json`) — neutralne vesti iz izmišljenog grada. Portal ih pri startu upiše u
+// svoju bazu (`Db.seedPosts`), uz vesti uvezene sa drugih portala (src/ingest.ts).
 
 import { readFileSync } from "node:fs";
 //
@@ -13,9 +14,13 @@ export interface Post {
   id: string;
   section: string;
   title: string;
-  /** Uvod ispod naslova (generisani članci). */
+  /** Uvod ispod naslova (generisani i uvezeni članci). */
   lead?: string;
   paragraphs: string[];
+  /** Izvor uvezene vesti (src/ingest.ts): ime portala i adresa originala. */
+  source?: { name: string; url: string };
+  /** Objava na portalu (ms), iz baze: redosled na naslovnoj i u rubrikama. */
+  published_ms?: number;
 }
 
 export interface Section {
@@ -169,13 +174,14 @@ for (const p of POSTS) {
   }
 }
 
-/** Fotografija članka (`content/img/<id>.jpg`), ili rezervna iz iste rubrike. */
-export function photoOf(id: string): Buffer | null {
+/** Članak ima sopstvenu fotografiju; ostali dobijaju ilustraciju iz rubrike. */
+export const hasOwnPhoto = (id: string): boolean => PHOTOS.has(id);
+
+/** Fotografija članka (`content/img/<id>.jpg`), ili ilustracija iz iste rubrike (`section` iz baze). */
+export function photoOf(id: string, section: string): Buffer | null {
   const direct = PHOTOS.get(id);
   if (direct) return direct;
-  const post = POSTS.find((p) => p.id === id);
-  if (!post) return null;
-  const same = POSTS.filter((p) => p.section === post.section && PHOTOS.has(p.id));
+  const same = POSTS.filter((p) => p.section === section && PHOTOS.has(p.id));
   if (same.length === 0) return PHOTOS.values().next().value ?? null;
   const idx = [...id].reduce((a, c) => a + c.charCodeAt(0), 0) % same.length;
   return PHOTOS.get(same[idx]!.id) ?? null;

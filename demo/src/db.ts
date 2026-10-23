@@ -1,12 +1,12 @@
-// Baza portala (PostgreSQL, baza `portal`, odvojena od Klakine): komentari, glasovi, stanje.
-// Pri startu napravi bazu ako ne postoji, primeni migracije (migrations/*.sql) i upiše početne
-// komentare.
+// Baza portala (PostgreSQL, baza `portal`, odvojena od Klakine): članci, komentari, glasovi,
+// stanje. Pri startu napravi bazu ako ne postoji, primeni migracije (migrations/*.sql) i upiše
+// početne članke i komentare.
 
 import { readdirSync, readFileSync } from "node:fs";
 
 import pg from "pg";
 
-import type { SeedComment } from "./content.js";
+import type { Post, SeedComment } from "./content.js";
 
 export type Decision = "count" | "shadow";
 
@@ -73,6 +73,31 @@ export interface Vote {
   net: string | null;
 }
 
+/** Uvezena vest pred objavu (src/ingest.ts); ID dodeljuje baza. */
+export interface Imported {
+  section: string;
+  title: string;
+  lead: string;
+  paragraphs: string[];
+  source: { name: string; url: string };
+  toxicity: number;
+  published_ms: number;
+}
+
+/** Red dnevnika uvoza: šta je urađeno sa vešću sa date adrese. */
+export interface IngestEntry {
+  url: string;
+  t: number;
+  source: string;
+  /** Naslov kod izvora. */
+  title: string;
+  /** `accepted` objavljena, `rejected` odbio urednik, `skipped` predfilter, `error` ponovo sledeći put. */
+  outcome: "accepted" | "rejected" | "skipped" | "error";
+  reason: string | null;
+  toxicity: number | null;
+  post: string | null;
+}
+
 const MIGRATIONS = new URL("../migrations/", import.meta.url);
 
 export class Db {
@@ -117,6 +142,83 @@ export class Db {
         [c.id, c.post, c.reply_to ?? null, c.author, c.text, t + i],
       );
     }
+  }
+
+  /**
+   * Članci iz repoa (idempotentno: postojeći red ostaje kakav je). Objava prvog je `t`, svaki
+   * sledeći minut kasnije — redosled kao po ID-ju.
+   */
+  async seedPosts(posts: Post[], t: number): Promise<void> {
+    for (const [i, p] of posts.entries()) {
+      await this.pool.query(
+        `INSERT INTO posts (id, section, title, lead, paragraphs, published_ms) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO NOTHING`,
+        [p.id, p.section, p.title, p.lead ?? null, JSON.stringify(p.paragraphs), t + i * 60_000],
+      );
+    }
+  }
+
+  /** Članci, noviji prvi; `section` za jednu rubriku. */
+  async posts(section?: string): Promise<Post[]> {
+    const r = await this.pool.query(
+      `SELECT ${POST} FROM posts WHERE ($1::text IS NULL OR section = $1) ORDER BY published_ms DESC, id DESC`,
+      [section ?? null],
+    );
+    return r.rows.map(toPost);
+  }
+
+  async post(id: string): Promise<Post | null> {
+    const r = await this.pool.query(`SELECT ${POST} FROM posts WHERE id = $1`, [id]);
+    return r.rows[0] ? toPost(r.rows[0]) : null;
+  }
+
+  /** Članci za koje Klaka još nije dobila `onPost`, stariji prvi. */
+  async unannouncedPosts(): Promise<Post[]> {
+    const r = await this.pool.query(`SELECT ${POST} FROM posts WHERE NOT announced ORDER BY published_ms, id`);
+    return r.rows.map(toPost);
+  }
+
+  async markAnnounced(id: string): Promise<void> {
+    await this.pool.query("UPDATE posts SET announced = true WHERE id = $1", [id]);
+  }
+
+  // --- uvoz vesti -----------------------------------------------------------------------------
+
+  /** Adrese koje uvoz preskače: već objavljene ili viđene (osim grešaka, one se ponavljaju). */
+  async seenUrls(urls: string[]): Promise<Set<string>> {
+    const r = await this.pool.query<{ url: string }>(
+      `SELECT source_url AS url FROM posts WHERE source_url = ANY($1)
+       UNION SELECT url FROM ingested_urls WHERE url = ANY($1) AND outcome <> 'error'`,
+      [urls],
+    );
+    return new Set(r.rows.map((x) => x.url));
+  }
+
+  /** Objava uvezene vesti (ID iz `post_seq`) i zapis u dnevnik; `null` ako je adresa već objavljena. */
+  async insertImported(p: Imported, entry: Omit<IngestEntry, "outcome" | "post">): Promise<string | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const r = await client.query<{ id: string }>(
+        `INSERT INTO posts (id, section, title, lead, paragraphs, source_name, source_url, toxicity, published_ms)
+         VALUES ('p-' || nextval('post_seq'), $1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (source_url) DO NOTHING RETURNING id`,
+        [p.section, p.title, p.lead, JSON.stringify(p.paragraphs), p.source.name, p.source.url, p.toxicity, p.published_ms],
+      );
+      const id = r.rows[0]?.id ?? null;
+      if (id) await recordIngest(client, { ...entry, outcome: "accepted", post: id });
+      await client.query("COMMIT");
+      return id;
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async recordIngest(e: IngestEntry): Promise<void> {
+    await recordIngest(this.pool, e);
   }
 
   async nextCommentId(): Promise<string> {
@@ -366,6 +468,29 @@ export class Db {
 }
 
 const COMMENT = "id, post, reply_to, author, text, score, t, decision, owner, token, retro, account, net";
+const POST = "id, section, title, lead, paragraphs, source_name, source_url, published_ms";
+
+function toPost(r: Record<string, unknown>): Post {
+  const { id, section, title, lead, paragraphs, source_name, source_url, published_ms } = r as {
+    id: string; section: string; title: string; lead: string | null; paragraphs: string[];
+    source_name: string | null; source_url: string | null; published_ms: string;
+  };
+  return {
+    id, section, title, paragraphs, published_ms: Number(published_ms),
+    ...(lead !== null ? { lead } : {}),
+    ...(source_name && source_url ? { source: { name: source_name, url: source_url } } : {}),
+  };
+}
+
+/** Upis u dnevnik uvoza; ponovljena adresa (posle greške) dobija novi ishod. */
+async function recordIngest(q: pg.Pool | pg.PoolClient, e: IngestEntry): Promise<void> {
+  await q.query(
+    `INSERT INTO ingested_urls (url, t, source, title, outcome, reason, toxicity, post)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (url) DO UPDATE SET t = $2, source = $3, title = $4, outcome = $5, reason = $6, toxicity = $7, post = $8`,
+    [e.url, e.t, e.source, e.title, e.outcome, e.reason, e.toxicity, e.post],
+  );
+}
 
 function toComment(r: Record<string, unknown>): Comment {
   return { ...(r as unknown as Comment), t: Number(r.t), account: r.account === null ? null : Number(r.account) };

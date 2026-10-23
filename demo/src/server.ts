@@ -1,5 +1,6 @@
 // Portal: naslovna, rubrike, članci, komentari sa odgovorima, glasanje. Bez framework-a, samo
-// node:http; stanje u bazi `portal` (PostgreSQL, odvojena od Klakine).
+// node:http; članci i stanje u bazi `portal` (PostgreSQL, odvojena od Klakine) — početni iz
+// repoa (src/content.ts) i vesti uvezene sa drugih portala (src/ingest.ts).
 //
 // Okruženje:
 //   PORT                 (3000)
@@ -69,7 +70,8 @@ const snippet = readSnippet(env.KLAKA_SNIPPET ?? "../ts/dist/klaka.min.js");
 
 if (!env.PORTAL_POSTGRES_URL) throw new Error("PORTAL_POSTGRES_URL nije postavljen");
 const db = await Db.open(env.PORTAL_POSTGRES_URL);
-// Početni komentari su stariji od svih pravih (sort „najnoviji").
+// Početni članci i komentari su stariji od svih pravih (sort „najnoviji").
+await db.seedPosts(POSTS, Date.parse("2026-10-01T06:00:00Z"));
 await db.seed(SEED_COMMENTS, Date.parse("2026-10-01T08:00:00Z"));
 
 const VIEWS_ON = (env.PORTAL_XRAY ?? "javno") !== "isključen";
@@ -121,15 +123,34 @@ async function refreshKeys(): Promise<void> {
     const json = JSON.stringify(body.keys);
     if (json !== keysJson) {
       if (klaka) klaka.setKeys(body.keys);
-      else {
-        klaka = new Klaka({ portal: PORTAL, keys: body.keys, policy: POLICY, ...(store && { store }), ...(events && { events }) });
-        announcePosts(klaka);
-      }
+      else klaka = new Klaka({ portal: PORTAL, keys: body.keys, policy: POLICY, ...(store && { store }), ...(events && { events }) });
       keysJson = json;
       console.log(`ključevi učitani: ${Object.keys(body.keys).join(", ")}`);
     }
   } catch (e) {
     console.warn(`klaka-api ključevi nedostupni (${API}): ${(e as Error).message}`);
+  }
+  await announcePosts().catch((e: Error) => console.warn(`onPost: ${e.message}`));
+}
+
+/**
+ * Članci portala (`onPost`), jednom po članku: engine iz teksta meri koliko se komentari tiču
+ * članka. Nov članak (uvoz) dobija `onPost` u sledećem krugu osvežavanja ključeva.
+ */
+let announcing = false;
+async function announcePosts(): Promise<void> {
+  if (!klaka || !events || announcing) return;
+  announcing = true;
+  try {
+    for (const p of await db.unannouncedPosts()) {
+      klaka.onPost({
+        post: p.id, rev: 1, url: `https://${PORTAL}/p/${p.id}`, title: p.title, section: p.section,
+        body: p.paragraphs.join("\n\n"),
+      });
+      await db.markAnnounced(p.id);
+    }
+  } finally {
+    announcing = false;
   }
 }
 
@@ -162,7 +183,7 @@ async function vote(req: IncomingMessage, res: ServerResponse): Promise<void> {
 
 async function comment(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req);
-  const post = POSTS.find((p) => p.id === body?.post);
+  const post = typeof body?.post === "string" ? await db.post(body.post) : null;
   const headers: Record<string, string> = {};
   const viewer = await visitor(req, headers);
   // Prijavljen komentariše pod pseudonimom naloga; anonimni ne sme pod tuđim registrovanim.
@@ -217,7 +238,7 @@ async function applyRetro(): Promise<void> {
  */
 async function promote(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req);
-  const post = POSTS.find((p) => p.id === body?.post);
+  const post = typeof body?.post === "string" ? await db.post(body.post) : null;
   const channel = body?.channel ?? "push";
   if (!post || !["push", "homepage", "newsletter", "social", "other"].includes(channel as string)) {
     return send(res, 400, "application/json", '{"ok":false}');
@@ -227,7 +248,7 @@ async function promote(req: IncomingMessage, res: ServerResponse): Promise<void>
 }
 
 async function article(req: IncomingMessage, res: ServerResponse, id: string, url: URL): Promise<void> {
-  const post = POSTS.find((p) => p.id === id);
+  const post = await db.post(id);
   if (!post) return send(res, 404, "text/plain", "nema");
   const headers: Record<string, string> = {};
   const viewer = await visitor(req, headers);
@@ -352,11 +373,7 @@ const server = createServer((req, res) => {
       if (req.method === "GET" && url.pathname.startsWith("/p/")) return article(req, res, url.pathname.slice(3), url);
       if (req.method === "GET" && url.pathname.startsWith("/r/")) return section(req, res, url.pathname.slice(3));
       if (req.method === "GET" && url.pathname.startsWith("/img/") && url.pathname.endsWith(".jpg")) {
-        const buf = photoOf(url.pathname.slice(5, -4));
-        if (!buf) return send(res, 404, "text/plain", "nema");
-        res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" });
-        res.end(buf);
-        return;
+        return photo(res, url.pathname.slice(5, -4));
       }
       switch (route) {
         case "GET /":
@@ -376,7 +393,8 @@ const server = createServer((req, res) => {
         case "POST /api/comment":
           return comment(req, res);
         case "GET /api/posts":
-          return send(res, 200, "application/json", JSON.stringify(POSTS.map(({ id, title }) => ({ id, title }))));
+          return db.posts().then((list) =>
+            send(res, 200, "application/json", JSON.stringify(list.map(({ id, title }) => ({ id, title })))));
         case "GET /api/comments":
           return publicComments(req, url.searchParams.get("post")).then((list) =>
             send(res, 200, "application/json", JSON.stringify(list)));
@@ -412,7 +430,7 @@ function adminOk(req: IncomingMessage): boolean {
   return given.length === want.length && timingSafeEqual(given, want);
 }
 
-function attacks(req: IncomingMessage, res: ServerResponse): void {
+async function attacks(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (!env.PORTAL_ADMIN_PASSWORD || !env.PORTAL_CACI_TOKEN) {
     return send(res, 404, "text/plain; charset=utf-8", "panel napada je isključen (PORTAL_ADMIN_PASSWORD, CACI_PANEL_TOKEN)");
   }
@@ -424,15 +442,25 @@ function attacks(req: IncomingMessage, res: ServerResponse): void {
     caciUrl: env.PORTAL_CACI_URL ?? "http://localhost:18095",
     caciToken: env.PORTAL_CACI_TOKEN,
     reviewUrl: env.PORTAL_REVIEW_PUBLIC_URL ?? "http://localhost:18083",
-    posts: POSTS,
+    // Mete caci profila (p-1001…) prve.
+    posts: (await db.posts()).sort((a, b) => a.id.localeCompare(b.id)),
   }));
+}
+
+/** Fotografija članka ili ilustracija iz njegove rubrike. */
+async function photo(res: ServerResponse, id: string): Promise<void> {
+  const post = await db.post(id);
+  const buf = post ? photoOf(post.id, post.section) : null;
+  if (!buf) return send(res, 404, "text/plain", "nema");
+  res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" });
+  res.end(buf);
 }
 
 async function home(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const headers: Record<string, string> = {};
   const { user } = await visitor(req, headers);
   send(res, 200, "text/html; charset=utf-8",
-    homePage({ portal: PORTAL, user, posts: POSTS, comments: await db.publicCounts() }), headers);
+    homePage({ portal: PORTAL, user, posts: await db.posts(), comments: await db.publicCounts() }), headers);
 }
 
 async function section(req: IncomingMessage, res: ServerResponse, slug: string): Promise<void> {
@@ -440,7 +468,7 @@ async function section(req: IncomingMessage, res: ServerResponse, slug: string):
   if (!s) return send(res, 404, "text/plain", "nema");
   const headers: Record<string, string> = {};
   const { user } = await visitor(req, headers);
-  const posts = POSTS.filter((p) => p.section === s.id);
+  const posts = await db.posts(s.id);
   send(res, 200, "text/html; charset=utf-8",
     sectionPage({ portal: PORTAL, user, section: s.id, name: s.name, posts, comments: await db.publicCounts() }), headers);
 }
@@ -568,15 +596,6 @@ function readSnippet(path: string): string {
 await refreshKeys();
 setInterval(refreshKeys, 15_000).unref();
 setInterval(() => void applyRetro().catch((e: Error) => console.warn(`naknadni shadow: ${e.message}`)), RETRO_MS).unref();
-/** Članci portala (`onPost`): engine iz teksta meri koliko se komentari tiču članka. */
-function announcePosts(k: Klaka): void {
-  for (const p of POSTS) {
-    k.onPost({
-      post: p.id, rev: 1, url: `https://${PORTAL}/p/${p.id}`, title: p.title, section: p.section,
-      body: p.paragraphs.join("\n\n"),
-    });
-  }
-}
 server.listen(PORT, () =>
   console.log(`demo portal na :${PORT} (klaka-api: ${API}, browser: ${API_PUBLIC}, događaji: ${events ? "da" : "ne"})`),
 );

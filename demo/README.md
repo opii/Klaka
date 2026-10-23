@@ -5,15 +5,43 @@ sa odgovorima, glasanje. Isti komentatori se javljaju na više članaka, kao na 
 Node + TypeScript, bez framework-a (`node:http`). Koristi `@klaka/sdk-node` i snippet iz `ts/`.
 
 Stanje je u bazi `portal` (PostgreSQL, ista instanca kao Klaka, ali odvojena baza — portal i
-Klaka su razdvojeni kao kod pravog portala): komentari, glasovi, kursor naknadnog shadow-a.
-Portal je pravi i migrira pri startu ([`migrations/`](migrations/)). Članci su sadržaj iz repoa:
-prva četiri su pisana ručno (na njih ciljaju caci profili, komentari `c1`–`c16`), ostale je jednom
-napisao lokalni LLM — neutralne vesti iz izmišljenog grada, sa početnim komentarima i odgovorima
-([`scripts/write-articles.mjs`](scripts/write-articles.mjs) → `content/articles.json`):
+Klaka su razdvojeni kao kod pravog portala): članci, komentari, glasovi, kursor naknadnog
+shadow-a. Portal je pravi i migrira pri startu ([`migrations/`](migrations/)). Početni članci su
+sadržaj iz repoa, koji portal pri startu upiše u bazu (`posts`, idempotentno — postojeći red se
+ne menja): prva četiri su pisana ručno (na njih ciljaju caci profili, komentari `c1`–`c16`),
+ostale je jednom napisao lokalni LLM — neutralne vesti iz izmišljenog grada, sa početnim
+komentarima i odgovorima ([`scripts/write-articles.mjs`](scripts/write-articles.mjs) →
+`content/articles.json`):
 
 ```bash
 docker compose run --rm --no-deps -w /work/demo node node scripts/write-articles.mjs   # ~4 min po članku na CPU-u
 ```
+
+**Uvoz vesti** ([`src/ingest.ts`](src/ingest.ts)): vesti sa drugih portala (RSS iz
+`PORTAL_FEEDS`, podrazumevano RTS, 021.rs, Danas i N1) postaju članci `p-2001`, `p-2002`, … uz
+potpis i link ka izvoru („Izvor: N1 — činjenični sažetak"). Portal ne prenosi tekst izvora:
+urednik (lokalni model, `PORTAL_INGEST_MODEL`, podrazumevano `gemma3:12b`) iz činjenica izvora
+piše miran sažetak od 4–5 pasusa svojim rečima. Dva stepena:
+
+1. predfilter bez modela — adresa već objavljena ili viđena (`ingested_urls`: odbijena vest ne
+   ide uredniku dvaput), tabloidne reči u naslovu (FOTO, VIDEO, ŠOK, SKANDAL, HOROR, UŽAS),
+   rijaliti, crna hronika, kladionice; rubrike izvora koje portal nema (svet, region, lifestyle,
+   kolumne…); politika i izbori po rubrici izvora, adresi i izbornim rečima u naslovu i uvodu
+   (portal nema političku rubriku — granica je tema, ne stav). Kratak opis iz feed-a dopunjuje se
+   tekstom sa stranice vesti, ako `robots.txt` izvora to dozvoljava; ispod 800 znakova izvora
+   vest ne ide uredniku (model bi dopisivao pozadinu i tumačenja);
+2. urednik, u dva koraka istog razgovora po JSON šemi: ocena — `politics`, rubrika (`grad`,
+   `kultura`, `saobraćaj`, `sport`, `ekonomija` ili „nijedna"), `toxicity` 1–5 (objavljuje se
+   samo ≤ 2), `accept` (činjenično i od javnog interesa); pa, samo za prihvaćenu, tekst sa 4–5
+   pasusa. Urednik ocenjuje samo ton i činjeničnost, nikad politički stav. Pravila se proveravaju
+   i u kodu, a sažetak duži od izvora se odbija kao dopisan.
+
+```bash
+docker compose exec demo node dist/ingest.js 3     # najviše 3 vesti za urednika; ~2,5 min po vesti na CPU-u
+```
+
+Uvezen članak bez sopstvene fotografije dobija ilustraciju iz svoje rubrike (sa potpisom
+„Ilustracija"); na naslovnoj su uvezene vesti na vrhu, noviji prvi.
 
 Komentari: niti (odgovor ostaje uz roditelja), poređani po zbiru („Najbolji", podrazumevano) ili
 po vremenu, 50 niti po stranici. Trajni link na komentar, `/p/<post>?komentar=<id>`, otvara
@@ -39,7 +67,8 @@ docker compose run --rm e2e           # 11 testova u pravom browseru (Chromium)
 Glas obrađuje `Klaka.onVote`, a komentar `Klaka.onComment` iz `@klaka/sdk-node`, sa Valkey-jem
 (brojač upotreba, ponovljeni glasovi, presude) preko adaptera [`src/valkey.ts`](src/valkey.ts).
 Svaki glas i komentar ide i u `klaka-collector` kao `vote` / `comment` događaj (sa prefiksom
-mreže, ne punim IP-jem); pri startu demo javlja `post` za svaki članak, sa tekstom.
+mreže, ne punim IP-jem); `post` sa tekstom demo javlja jednom za svaki članak, i uvezen
+(`posts.announced`).
 
 Nalog je opcion, kao na većini portala u regionu: komentar i glas i bez njega (pseudonim uz
 komentar), a nalog (`/registracija`, `/prijava`, `/odjava`) daje stalan pseudonim sa oznakom ✓ i

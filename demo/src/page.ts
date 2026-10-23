@@ -1,6 +1,6 @@
 // HTML portala. Sve promenljive vrednosti prolaze kroz esc().
 
-import { SECTIONS, sectionOf, type Post } from "./content.js";
+import { hasOwnPhoto, SECTIONS, sectionOf, type Post } from "./content.js";
 import type { Account, Comment, Vote } from "./db.js";
 import { PAGE, SORTS, type Sort, type Thread } from "./thread.js";
 
@@ -57,6 +57,8 @@ const STYLE = `
   .thumb { display: block; margin-bottom: 8px; overflow: hidden; border-radius: 4px; background: var(--soft) }
   .thumb img, .figure img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover }
   .figure { margin: 16px 0 20px; border-radius: 4px; overflow: hidden; background: var(--soft) }
+  .figure figcaption { padding: 4px 8px }
+  .story .meta a { color: var(--accent) }
   .story h2 { font-size: 26px; line-height: 1.2; margin: 6px 0 }
   .story h3 { font-size: 19px; line-height: 1.25; margin: 6px 0 }
   .story p { margin: 4px 0; color: var(--muted); font-size: 15px }
@@ -148,6 +150,12 @@ ${o.body}
 const DEMO_NOTE = `<p class="demo">Demo za proof of concept. <a href="/admin">/admin</a> pokazuje šta je uračunato,
   šta je otišlo u shadow i zašto. Pravi portal te podatke nikad ne prikazuje.</p>`;
 
+/** Link ka originalu uvezene vesti: samo http(s), u novom tabu, bez `Referer`-a i `window.opener`-a. */
+function sourceLink(p: Post): string {
+  if (!p.source || !/^https?:\/\//i.test(p.source.url)) return "";
+  return `<a href="${esc(p.source.url)}" target="_blank" rel="noopener noreferrer">${esc(p.source.name)}</a>`;
+}
+
 function storyLink(p: Post, comments: number, big = false, photo = true): string {
   const s = sectionOf(p.section);
   const h = big ? "h2" : "h3";
@@ -158,16 +166,20 @@ function storyLink(p: Post, comments: number, big = false, photo = true): string
     ${img}<div class="kicker">${esc(s?.name ?? p.section)}</div>
     <a href="/p/${esc(p.id)}"><${h}>${esc(p.title)}</${h}></a>
     ${p.lead ? `<p>${esc(p.lead)}</p>` : ""}
-    <div class="meta">${esc(comments)} komentara</div>
+    <div class="meta">${p.source ? `Izvor: ${sourceLink(p)} · ` : ""}${esc(comments)} komentara</div>
   </div>`;
 }
 
-/** Naslovna: glavna vest, izdvojene vesti, najkomentarisanije i blok po rubrici. */
+/** Naslovna: glavna vest, izdvojene vesti, najkomentarisanije i blok po rubrici. `posts`: noviji prvi. */
 export function homePage(o: { portal: string; user: User; posts: Post[]; comments: Map<string, number> }): string {
   const count = (p: Post) => o.comments.get(p.id) ?? 0;
-  // Prva 4 članka (p-1001…p-1004) su mete caci kampanja, pa su na vrhu naslovne; rubrike ispod idu od novijih.
-  const [lead, ...rest] = o.posts;
-  const newest = [...o.posts].sort((a, b) => b.id.localeCompare(a.id));
+  // Na vrhu su uvezene vesti, noviji prvi, pa članci iz repoa po ID-ju: prva 4 (p-1001…p-1004) su
+  // mete caci kampanja. Rubrike ispod idu od novijih.
+  const [lead, ...rest] = [
+    ...o.posts.filter((p) => p.source),
+    ...o.posts.filter((p) => !p.source).sort((a, b) => a.id.localeCompare(b.id)),
+  ];
+  const newest = o.posts;
   const most = [...o.posts].sort((a, b) => count(b) - count(a) || b.id.localeCompare(a.id)).slice(0, 6);
   const blocks = SECTIONS.map((s) => {
     const here = newest.filter((p) => p.section === s.id).slice(0, 3);
@@ -194,11 +206,11 @@ export function homePage(o: { portal: string; user: User; posts: Post[]; comment
   });
 }
 
-/** Rubrika: svi članci, noviji prvi. */
+/** Rubrika: svi članci, noviji prvi (redosled iz baze). */
 export function sectionPage(o: {
   portal: string; user: User; section: string; name: string; posts: Post[]; comments: Map<string, number>;
 }): string {
-  const list = [...o.posts].sort((a, b) => b.id.localeCompare(a.id));
+  const list = o.posts;
   return layout({
     portal: o.portal,
     user: o.user,
@@ -305,7 +317,9 @@ export function articlePage(o: {
     body: `<div class="kicker"><a href="/r/${esc(section?.slug ?? "")}">${esc(section?.name ?? o.post.section)}</a></div>
   <h1>${esc(o.post.title)}</h1>
   ${o.post.lead ? `<p class="lead">${esc(o.post.lead)}</p>` : ""}
-  <figure class="figure"><img src="/img/${esc(o.post.id)}.jpg" alt="${esc(o.post.title)}" width="640" height="360"></figure>
+  ${o.post.source ? `<p class="meta">Izvor: ${sourceLink(o.post)} — činjenični sažetak</p>` : ""}
+  <figure class="figure"><img src="/img/${esc(o.post.id)}.jpg" alt="${esc(o.post.title)}" width="640" height="360">${
+    hasOwnPhoto(o.post.id) ? "" : '<figcaption class="meta">Ilustracija</figcaption>'}</figure>
   ${paragraphs}
   ${DEMO_NOTE}
 

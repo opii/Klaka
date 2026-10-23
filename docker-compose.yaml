@@ -151,6 +151,11 @@ services:
       PORTAL_ADMIN_PASSWORD: ${PORTAL_ADMIN_PASSWORD:-}
       PORTAL_CACI_URL: http://localhost:${CACI_PANEL_PORT:-18095}
       PORTAL_CACI_TOKEN: ${CACI_PANEL_TOKEN:-}
+      # Uvoz vesti (src/ingest.ts): RSS izvori (`Ime=https://…`, zarezom; prazno = RTS, 021.rs,
+      # Danas, N1) i urednik — lokalni model u ollama servisu.
+      PORTAL_FEEDS: ${PORTAL_FEEDS:-}
+      OLLAMA_URL: http://ollama:11434
+      PORTAL_INGEST_MODEL: ${PORTAL_INGEST_MODEL:-gemma3:12b}
       # Samo test okruženje: emulator klake (caci/) dodeljuje adrese preko ovog zaglavlja.
       KLAKA_CLIENT_IP_HEADER: x-forwarded-for
     ports: ["127.0.0.1:${DEMO_PORT:-18082}:3000"]
